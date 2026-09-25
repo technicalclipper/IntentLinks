@@ -12,10 +12,11 @@
  */
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import {
+  ZkLoginSigner,
   generateNonce,
   generateRandomness,
   getExtendedEphemeralPublicKey,
-  getZkLoginSignature,
+  type ZkLoginSignatureInputs,
 } from "@mysten/sui/zklogin";
 
 const STORAGE_KEY = "intentlink.zklogin";
@@ -158,23 +159,33 @@ export class StaleSessionError extends Error {
   }
 }
 
+/**
+ * Wrap an ephemeral signature in the zkLogin proof.
+ *
+ * Uses the SDK's own ZkLoginSigner rather than assembling the signature by
+ * hand, mainly for the `address` guard: it re-derives the address from the
+ * proof inputs and throws if it disagrees with the one we think we are.
+ * Hand-assembly fails the same case silently, four steps later, as "Groth16
+ * proof verify failed" — which names the proof rather than the mismatch.
+ */
 export async function signAsZkLogin(
   s: ActiveSession,
   txBytes: Uint8Array,
 ): Promise<string> {
-  const keypair = keypairFromSession(s);
-
   // The proof is only valid for the key it was generated against.
   if (s.provedFor && extendedPublicKey(s) !== s.provedFor) {
     clearSession();
     throw new StaleSessionError();
   }
 
-  const { signature: userSignature } = await keypair.signTransaction(txBytes);
-
-  return getZkLoginSignature({
-    inputs: s.proof as Parameters<typeof getZkLoginSignature>[0]["inputs"],
+  const signer = new ZkLoginSigner({
+    ephemeralSigner: keypairFromSession(s),
     maxEpoch: s.maxEpoch,
-    userSignature,
+    inputs: s.proof as ZkLoginSignatureInputs,
+    legacyAddress: false,
+    address: s.address,
   });
+
+  const { signature } = await signer.signTransaction(txBytes);
+  return signature;
 }

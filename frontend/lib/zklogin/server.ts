@@ -100,6 +100,7 @@ export async function verifyGoogleIdToken(idToken: string): Promise<JwtClaims> {
   const header = JSON.parse(b64urlToBuf(headerB64).toString()) as { kid: string; alg: string };
   const claims = JSON.parse(b64urlToBuf(payloadB64).toString()) as JwtClaims;
 
+  console.log("[zklogin] token kid =", header.kid, "alg =", header.alg);
   const jwk = (await googleKeys()).find((k) => k.kid === header.kid);
   if (!jwk) throw new Error("id_token signed with an unknown key");
 
@@ -198,6 +199,14 @@ export async function requestProof(req: ProofRequest): Promise<ZkProof> {
   const claims = decodeJwt(req.idToken) as unknown as JwtClaims;
   const salt = deriveSalt(claims);
   const addressSeed = genAddressSeed(salt, "sub", claims.sub, claims.aud).toString();
+
+  console.log("[zklogin] prover payload", {
+    extendedEphemeralPublicKey: req.extendedEphemeralPublicKey.slice(0, 24),
+    isDecimal: /^\d+$/.test(req.extendedEphemeralPublicKey),
+    maxEpoch: req.maxEpoch,
+    jwtRandomness: req.jwtRandomness.slice(0, 20),
+    salt: salt.toString().slice(0, 20),
+  });
 
   const res = await fetch(PROVER_URL, {
     method: "POST",
