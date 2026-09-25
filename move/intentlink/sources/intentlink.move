@@ -41,6 +41,7 @@ const E_POOL_NOT_SCOPED: u64 = 22;
 const E_SLIPPAGE: u64 = 23;
 const E_WRONG_BENEFICIARY: u64 = 24;
 const E_ZERO_AMOUNT: u64 = 25;
+const E_NOT_PRINCIPAL: u64 = 26;
 
 // ===== Settlement modes ===========================================
 
@@ -128,6 +129,10 @@ public struct Capsule has key {
     /// either side can shrink the capability, only the issuer can grant it.
     issuer_paused: bool,
     principal_paused: bool,
+    /// Killed by the issuer, without tearing down the whole vault.
+    revoked: bool,
+    /// Handed back by the principal. A standing 30-day authority is a
+    /// liability to hold; a clean exit is what makes it acceptable to accept.
     surrendered: bool,
 
     // --- cross-chain linkage -------------------------------------
@@ -214,6 +219,43 @@ public struct Skipped has copy, drop {
     capsule_id: ID,
     reason_code: u8,
     detail: vector<u8>,
+    at_ms: u64,
+}
+
+public struct VaultRevoked has copy, drop {
+    vault_id: ID,
+    funder: address,
+    returned: u64,
+}
+
+public struct CapsuleRevoked has copy, drop {
+    capsule_id: ID,
+    by: address,
+    spent: u64,
+    at_ms: u64,
+}
+
+public struct PauseChanged has copy, drop {
+    capsule_id: ID,
+    issuer_paused: bool,
+    principal_paused: bool,
+    by: address,
+    at_ms: u64,
+}
+
+public struct Surrendered has copy, drop {
+    capsule_id: ID,
+    by: address,
+    spent: u64,
+    at_ms: u64,
+}
+
+public struct CapsReduced has copy, drop {
+    capsule_id: ID,
+    per_action_cap: u64,
+    per_window_cap: u64,
+    total_cap: u64,
+    by: address,
     at_ms: u64,
 }
 
@@ -357,6 +399,7 @@ public fun mint_capsule<T>(
 
         issuer_paused: false,
         principal_paused: false,
+        revoked: false,
         surrendered: false,
 
         ens_node,
@@ -490,6 +533,7 @@ public fun execute<T>(
 
     // --- is the capability alive ---------------------------------
     assert!(!vault.revoked, E_REVOKED);
+    assert!(!capsule.revoked, E_REVOKED);
     assert!(!capsule.surrendered, E_SURRENDERED);
     assert!(!capsule.issuer_paused && !capsule.principal_paused, E_PAUSED);
     assert!(now >= capsule.not_before, E_NOT_YET);
@@ -561,6 +605,136 @@ public fun log_skip(
         capsule_id: object::id(capsule),
         reason_code,
         detail,
+        at_ms: clock.timestamp_ms(),
+    });
+}
+
+// ===== Control ====================================================
+//
+// The asymmetry: either party may shrink the capability, only the issuer
+// may grant it. Nothing here lets the agent widen its own bounds.
+
+/// Kill the vault and sweep every unspent coin back to the funder, in the
+/// same transaction. Every capsule drawing on it dies at the same instant.
+///
+/// Revocation and refund are one transaction, not a promise followed by a
+/// refund process.
+public fun revoke_vault<T>(vault: &mut Vault<T>, ctx: &mut TxContext) {
+    assert!(vault.funder == ctx.sender(), E_NOT_ISSUER);
+    assert!(!vault.revoked, E_REVOKED);
+
+    vault.revoked = true;
+
+    let returned = vault.balance.value();
+    if (returned > 0) {
+        let sweep = coin::take(&mut vault.balance, returned, ctx);
+        transfer::public_transfer(sweep, vault.funder);
+    };
+
+    event::emit(VaultRevoked {
+        vault_id: object::id(vault),
+        funder: vault.funder,
+        returned,
+    });
+}
+
+/// Kill one capsule without tearing down the vault behind it. For when a
+/// vault backs several capabilities and only one should end.
+public fun revoke_capsule(capsule: &mut Capsule, clock: &Clock, ctx: &TxContext) {
+    assert!(capsule.issuer == ctx.sender(), E_NOT_ISSUER);
+    assert!(!capsule.revoked, E_REVOKED);
+
+    capsule.revoked = true;
+
+    event::emit(CapsuleRevoked {
+        capsule_id: object::id(capsule),
+        by: ctx.sender(),
+        spent: capsule.spent,
+        at_ms: clock.timestamp_ms(),
+    });
+}
+
+/// Issuer's pause switch.
+public fun set_issuer_pause(capsule: &mut Capsule, paused: bool, clock: &Clock, ctx: &TxContext) {
+    assert!(capsule.issuer == ctx.sender(), E_NOT_ISSUER);
+    capsule.issuer_paused = paused;
+    emit_pause(capsule, clock, ctx.sender());
+}
+
+/// The principal's own pause switch, independent of the issuer's. Execution
+/// resumes only when both are clear.
+public fun set_principal_pause(capsule: &mut Capsule, paused: bool, clock: &Clock, ctx: &TxContext) {
+    assert!(capsule.principal.is_some(), E_NOT_CLAIMED);
+    assert!(*capsule.principal.borrow() == ctx.sender(), E_NOT_PRINCIPAL);
+    capsule.principal_paused = paused;
+    emit_pause(capsule, clock, ctx.sender());
+}
+
+fun emit_pause(capsule: &Capsule, clock: &Clock, by: address) {
+    event::emit(PauseChanged {
+        capsule_id: object::id(capsule),
+        issuer_paused: capsule.issuer_paused,
+        principal_paused: capsule.principal_paused,
+        by,
+        at_ms: clock.timestamp_ms(),
+    });
+}
+
+/// Hand the capability back. Principal only, irreversible.
+///
+/// Funds stay in the vault, which was always the issuer's — they withdraw
+/// separately. What surrender gives the principal is release from the
+/// liability of holding a live standing authority.
+public fun surrender(capsule: &mut Capsule, clock: &Clock, ctx: &TxContext) {
+    assert!(capsule.principal.is_some(), E_NOT_CLAIMED);
+    assert!(*capsule.principal.borrow() == ctx.sender(), E_NOT_PRINCIPAL);
+    assert!(!capsule.surrendered, E_SURRENDERED);
+
+    capsule.surrendered = true;
+
+    event::emit(Surrendered {
+        capsule_id: object::id(capsule),
+        by: ctx.sender(),
+        spent: capsule.spent,
+        at_ms: clock.timestamp_ms(),
+    });
+}
+
+/// Tighten the bounds. Callable by either the issuer or the principal,
+/// because shrinking a capability is always safe. Each value must be at or
+/// below the current one — this function cannot widen anything.
+///
+/// There is deliberately no counterpart that raises a cap from here. Growing
+/// a capability means minting a new capsule, so the terms are re-stated and
+/// re-agreed rather than quietly edited.
+public fun reduce_caps(
+    capsule: &mut Capsule,
+    new_per_action_cap: u64,
+    new_per_window_cap: u64,
+    new_total_cap: u64,
+    clock: &Clock,
+    ctx: &TxContext,
+) {
+    let sender = ctx.sender();
+    let is_issuer = capsule.issuer == sender;
+    let is_principal =
+        capsule.principal.is_some() && *capsule.principal.borrow() == sender;
+    assert!(is_issuer || is_principal, E_NOT_PRINCIPAL);
+
+    assert!(new_per_action_cap <= capsule.per_action_cap, E_BAD_CAPS);
+    assert!(new_per_window_cap <= capsule.per_window_cap, E_BAD_CAPS);
+    assert!(new_total_cap <= capsule.total_cap, E_BAD_CAPS);
+
+    capsule.per_action_cap = new_per_action_cap;
+    capsule.per_window_cap = new_per_window_cap;
+    capsule.total_cap = new_total_cap;
+
+    event::emit(CapsReduced {
+        capsule_id: object::id(capsule),
+        per_action_cap: new_per_action_cap,
+        per_window_cap: new_per_window_cap,
+        total_cap: new_total_cap,
+        by: sender,
         at_ms: clock.timestamp_ms(),
     });
 }
