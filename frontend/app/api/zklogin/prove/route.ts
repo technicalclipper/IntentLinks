@@ -37,6 +37,19 @@ export async function POST(request: Request) {
       jwtRandomness,
     });
 
+    // A Groth16 verify failure at signing time means the proof and the
+    // address disagree, and the two are computed in different places. Log
+    // enough to tell which side is wrong without logging the proof itself.
+    console.log("[zklogin] proved", {
+      address,
+      addressSeed: proof.addressSeed,
+      maxEpoch,
+      iss: claims.iss,
+      audTail: claims.aud.slice(-24),
+      subTail: claims.sub.slice(-6),
+      proofKeys: Object.keys(proof).join(","),
+    });
+
     return Response.json({
       address,
       proof,

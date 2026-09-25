@@ -31,12 +31,13 @@ export default function AuthCallback() {
         if (!ephemeral) throw new Error("this sign-in was started in another tab");
 
         setDetail("generating your proof");
+        const provedFor = extendedPublicKey(ephemeral);
         const res = await fetch("/api/zklogin/prove", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             idToken,
-            extendedEphemeralPublicKey: extendedPublicKey(ephemeral),
+            extendedEphemeralPublicKey: provedFor,
             maxEpoch: ephemeral.maxEpoch,
             jwtRandomness: ephemeral.randomness,
           }),
@@ -52,6 +53,7 @@ export default function AuthCallback() {
 
         saveSession({
           ...ephemeral,
+          provedFor,
           address: data.address,
           email: data.email ?? "",
           proof: data.proof,

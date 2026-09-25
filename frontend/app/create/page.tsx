@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useZkLogin } from "@/lib/zklogin/useZkLogin";
 import { createdOfType, sendAction } from "@/lib/tx-client";
+import { StaleSessionError } from "@/lib/zklogin/client";
 
 const SUI = 1_000_000_000;
 const DAY_MS = 86_400_000;
@@ -154,6 +155,11 @@ export default function Create() {
       setLink({ name: out.name, url: out.url });
       setPhase("done");
     } catch (e) {
+      if (e instanceof StaleSessionError) {
+        setError("Your sign-in expired. Sign in again and retry.");
+        setPhase("compose");
+        return;
+      }
       setError((e as Error).message);
       setPhase("review");
     }

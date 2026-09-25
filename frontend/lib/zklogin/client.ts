@@ -29,6 +29,16 @@ export interface EphemeralSession {
 }
 
 export interface ActiveSession extends EphemeralSession {
+  /**
+   * The extended ephemeral public key the proof was generated for.
+   *
+   * A zkLogin proof commits to one ephemeral key and one maxEpoch. If the
+   * stored proof and the stored secret ever drift apart — two sign-ins
+   * racing, a half-finished callback — the validator rejects it with
+   * "Groth16 proof verify failed", which says nothing about the cause. This
+   * lets us catch it here and re-authenticate instead.
+   */
+  provedFor: string;
   address: string;
   email: string;
   proof: unknown;
@@ -118,11 +128,25 @@ export function extendedPublicKey(s: EphemeralSession): string {
  * Wrap an ephemeral signature in the zkLogin proof so validators accept it
  * as coming from the user's address.
  */
+export class StaleSessionError extends Error {
+  constructor() {
+    super("Your sign-in expired. Sign in again.");
+    this.name = "StaleSessionError";
+  }
+}
+
 export async function signAsZkLogin(
   s: ActiveSession,
   txBytes: Uint8Array,
 ): Promise<string> {
   const keypair = keypairFromSession(s);
+
+  // The proof is only valid for the key it was generated against.
+  if (s.provedFor && extendedPublicKey(s) !== s.provedFor) {
+    clearSession();
+    throw new StaleSessionError();
+  }
+
   const { signature: userSignature } = await keypair.signTransaction(txBytes);
 
   return getZkLoginSignature({
