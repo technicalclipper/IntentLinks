@@ -2,6 +2,8 @@
 
 import {
   IDKitRequestWidget,
+  deviceLegacy,
+  orbLegacy,
   proofOfHuman,
   type IDKitResult,
   type RpContext,
@@ -12,6 +14,26 @@ import { useZkLogin } from "@/lib/zklogin/useZkLogin";
 const APP_ID = process.env.NEXT_PUBLIC_WORLD_APP_ID as `app_${string}`;
 const ACTION = process.env.NEXT_PUBLIC_WORLD_ACTION_IDENTITY ?? "intentlink-identity";
 const SUI = 1_000_000_000;
+
+/**
+ * Which credential to ask for.
+ *
+ * proofOfHuman() is a World ID v4 credential and an action created through
+ * the portal the ordinary way is not provisioned for it — World answers
+ * "this attribute is required". The *Legacy presets map to the v3
+ * verification levels the portal actually knows about.
+ *
+ * deviceLegacy is the permissive one: it accepts an orb-verified human too,
+ * so nobody is turned away, which matters when the demo runs on whichever
+ * phone is to hand. Production would ask for orb on a standing authority.
+ */
+const CREDENTIAL = (
+  {
+    device: deviceLegacy,
+    orb: orbLegacy,
+    human: proofOfHuman,
+  } as const
+)[process.env.NEXT_PUBLIC_WORLD_CREDENTIAL ?? "device"] ?? deviceLegacy;
 
 
 interface Intent {
@@ -200,7 +222,8 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
               action={ACTION}
               rp_context={rp}
               allow_legacy_proofs
-              preset={proofOfHuman()}
+              action_description="Redeem an IntentLink permission"
+              preset={CREDENTIAL()}
               onSuccess={redeem}
             />
           )}
