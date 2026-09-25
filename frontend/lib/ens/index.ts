@@ -17,6 +17,7 @@ import {
   encodeFunctionData,
   http,
   namehash,
+  parseEventLogs,
   toHex,
   type Address,
 } from "viem";
@@ -26,8 +27,10 @@ import { packetToBytes } from "viem/ens";
 import {
   CAPSULE_ROLES,
   PermissionedRegistryAbi,
+  ROLE_SET_RESOLVER,
   SubtreeResolverAbi,
   TextAbi,
+  TransferSingleAbi,
 } from "./abi";
 import { ENS_NAME, RECORD } from "./config";
 
@@ -83,7 +86,13 @@ export async function issueCapsuleName(
   label: string,
   records: CapsuleRecords,
   opts: { expiresAt?: bigint } = {},
-): Promise<{ name: string; node: `0x${string}`; registerTx: string; recordsTx: string }> {
+): Promise<{
+  name: string;
+  node: `0x${string}`;
+  tokenId: string | null;
+  registerTx: string;
+  recordsTx: string;
+}> {
   const { account, wallet, registry } = controller();
   const pub = ensPublicClient();
 
@@ -102,12 +111,23 @@ export async function issueCapsuleName(
       expires,
     ],
   });
-  await pub.waitForTransactionReceipt({ hash: registerTx });
+  const receipt = await pub.waitForTransactionReceipt({ hash: registerTx });
+
+  // Names are ERC-1155 and the mint event is the only place the tokenId
+  // surfaces. We need it to manage roles on this name later.
+  const logs = parseEventLogs({ abi: TransferSingleAbi, logs: receipt.logs });
+  const tokenId = (logs[0]?.args as { id?: bigint } | undefined)?.id ?? null;
 
   const node = namehash(fullName(label));
   const recordsTx = await writeRecords(label, records);
 
-  return { name: fullName(label), node, registerTx, recordsTx };
+  return {
+    name: fullName(label),
+    node,
+    tokenId: tokenId?.toString() ?? null,
+    registerTx,
+    recordsTx,
+  };
 }
 
 /** Write or update records. One multicall, so the name is never half-updated. */
@@ -223,3 +243,26 @@ export function policyAgrees(ensPolicy: string | undefined, suiPolicyHash: strin
 export function labelFor(capsuleId: string, prefix = "cap"): string {
   return `${prefix}-${capsuleId.replace(/^0x/, "").slice(0, 8)}`;
 }
+
+/*
+ * ATTEMPTED AND REMOVED: per-capsule record freezing via EAC.
+ *
+ * The idea was to revoke our own ROLE_SET_RESOLVER once a capability ends,
+ * so that neither we nor anyone else could rewrite the published terms
+ * afterwards — an immutable tombstone, which would have been a real answer
+ * to "why should we trust your backend not to rewrite history".
+ *
+ * It does not work, for a reason worth recording. We write records through
+ * the *parent's* subtree resolver, which authorises against intentlink.eth
+ * rather than the child token. Revoking a role on the child changes nothing;
+ * revoking at the parent would freeze every capsule at once.
+ *
+ * Also learned along the way: tokenIds regenerate on every role change, so
+ * you cannot confirm a revocation by re-querying hasRoles with the id you
+ * started with — it silently reports the old state. The only reliable check
+ * is to attempt the write and see whether it reverts.
+ *
+ * Making this work would need a resolver scoped per capsule rather than per
+ * subtree. Out of scope for now; the finding is more useful than a
+ * half-working feature.
+ */

@@ -183,14 +183,33 @@ export const TextAbi = [
 /**
  * Enhanced Access Control roles.
  *
- * 32 roles per registry, scoped per name. Each role at bit N has an admin at
- * N + 128 that controls who may grant or revoke it, and only the name owner
- * can hold admin roles — so permissions cannot survive a transfer.
+ * Roles are scoped per name, and each role at bit N has an admin at N + 128
+ * controlling who may grant or revoke it. Only the name owner can hold admin
+ * roles, so permissions cannot survive a transfer.
  *
- * ROLE_SET_RESOLVER is documented as bit 24; the rest are not published.
+ * Only ROLE_SET_RESOLVER (bit 24) is documented. Probing a freshly
+ * registered name showed the rest sit at every fourth bit — 0, 4, 8, 12, 16,
+ * 20, 24, 28 — with the owner holding the full base and admin set after
+ * register(), whatever bitmap was passed in.
  */
+export const ROLE_BIT_SPACING = 4n;
 export const ROLE_SET_RESOLVER = 1n << 24n;
 export const ROLE_SET_RESOLVER_ADMIN = 1n << (24n + 128n);
 
 /** What we grant ourselves on each capsule subname: set records, and delegate that. */
 export const CAPSULE_ROLES = ROLE_SET_RESOLVER | ROLE_SET_RESOLVER_ADMIN;
+
+/** ERC-1155 mint event, the only way to learn a name's tokenId. */
+export const TransferSingleAbi = [
+  {
+    type: "event",
+    name: "TransferSingle",
+    inputs: [
+      { indexed: true, name: "operator", type: "address" },
+      { indexed: true, name: "from", type: "address" },
+      { indexed: true, name: "to", type: "address" },
+      { indexed: false, name: "id", type: "uint256" },
+      { indexed: false, name: "value", type: "uint256" },
+    ],
+  },
+] as const;
