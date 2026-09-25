@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
-import type { JwtClaims } from "../zklogin/server";
+import { canonicalIss, type JwtClaims } from "../zklogin/server";
 
 /**
  * Demo-mode accounts.
@@ -41,7 +41,9 @@ export function demoKeypair(claims: Pick<JwtClaims, "iss" | "aud" | "sub">): Ed2
   if (!SALT_SECRET) throw new Error("ZKLOGIN_SALT_SECRET is not set");
   const seed = crypto
     .createHmac("sha256", SALT_SECRET)
-    .update(`demo|${claims.iss}|${claims.aud}|${claims.sub}`)
+    // Canonicalised: Google emits iss in two forms, and using them raw
+    // hands the same person a different address on alternate sign-ins.
+    .update(`demo|${canonicalIss(claims.iss)}|${claims.aud}|${claims.sub}`)
     .digest();
   return Ed25519Keypair.fromSecretKey(new Uint8Array(seed));
 }

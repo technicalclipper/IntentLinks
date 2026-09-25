@@ -27,6 +27,17 @@ const SALT_SECRET = process.env.ZKLOGIN_SALT_SECRET;
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
 const GOOGLE_ISS = "https://accounts.google.com";
+
+/**
+ * Google emits `iss` as either "accounts.google.com" or
+ * "https://accounts.google.com" and both are valid. Anything deriving a
+ * stable identity from it has to pick one, or the same person gets a
+ * different address depending on which form arrived — which looks exactly
+ * like "my wallet changed when I signed in again".
+ */
+export function canonicalIss(iss: string): string {
+  return iss === "accounts.google.com" ? GOOGLE_ISS : iss;
+}
 const GOOGLE_JWKS = "https://www.googleapis.com/oauth2/v3/certs";
 
 export interface JwtClaims {
@@ -57,7 +68,7 @@ export function deriveSalt(claims: Pick<JwtClaims, "iss" | "aud" | "sub">): bigi
   if (!SALT_SECRET) throw new Error("ZKLOGIN_SALT_SECRET is not set");
   const mac = crypto
     .createHmac("sha256", SALT_SECRET)
-    .update(`${claims.iss}|${claims.aud}|${claims.sub}`)
+    .update(`${canonicalIss(claims.iss)}|${claims.aud}|${claims.sub}`)
     .digest();
   // zkLogin salt must fit in 128 bits.
   return BigInt("0x" + mac.subarray(0, 16).toString("hex"));
