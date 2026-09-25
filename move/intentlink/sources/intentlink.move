@@ -42,6 +42,9 @@ const E_SLIPPAGE: u64 = 23;
 const E_WRONG_BENEFICIARY: u64 = 24;
 const E_ZERO_AMOUNT: u64 = 25;
 const E_NOT_PRINCIPAL: u64 = 26;
+const E_PERMIT_WRONG_CAPSULE: u64 = 27;
+const E_PERMIT_EXPIRED: u64 = 28;
+const E_PERMIT_AMOUNT: u64 = 29;
 
 // ===== Settlement modes ===========================================
 
@@ -154,6 +157,23 @@ public struct VerifierCap has key, store {
     id: UID,
 }
 
+/// One-shot authority to exceed a soft bound, minted only after a fresh
+/// World ID proof from the issuer.
+///
+/// `key` and nothing else — no `store`, no `copy`, and crucially no `drop`.
+/// `execute_elevated` takes it by value and destroys it, so replay is not
+/// defended against, it is unrepresentable. Move will not let a Permit be
+/// duplicated, stashed for later, or silently discarded.
+public struct Permit has key {
+    id: UID,
+    capsule_id: ID,
+    max_amount: u64,
+    expires_at: u64,
+    /// hash(capsule_id, amount, nonce) from the World ID signal, so the
+    /// approval is welded to one request and cannot be reused for another.
+    signal_hash: vector<u8>,
+}
+
 // ===== Events =====================================================
 
 public struct VaultCreated has copy, drop {
@@ -202,6 +222,23 @@ public struct Executed has copy, drop {
     window_spent: u64,
     total_spent: u64,
     windows_used: u64,
+    elevated: bool,
+    at_ms: u64,
+}
+
+public struct PermitMinted has copy, drop {
+    permit_id: ID,
+    capsule_id: ID,
+    max_amount: u64,
+    expires_at: u64,
+    signal_hash: vector<u8>,
+}
+
+public struct PermitConsumed has copy, drop {
+    capsule_id: ID,
+    max_amount: u64,
+    amount: u64,
+    signal_hash: vector<u8>,
     at_ms: u64,
 }
 
@@ -524,6 +561,65 @@ public fun execute<T>(
     slippage_bps: u64,
     ctx: &mut TxContext,
 ) {
+    execute_inner(
+        vault, capsule, clock, amount, recipient, pool_id, slippage_bps,
+        option::none(), ctx,
+    )
+}
+
+/// Spend above a soft bound, consuming a one-shot `Permit`.
+///
+/// The permit is taken **by value** and destroyed. It lifts the per-action
+/// and per-window caps for exactly one action; it lifts nothing else. The
+/// hard cap, the total cap, the pool scope, the expiry, the pause flags and
+/// the revocation check all still run.
+///
+/// A permit is a key to one door, not to the building.
+public fun execute_elevated<T>(
+    vault: &mut Vault<T>,
+    capsule: &mut Capsule,
+    permit: Permit,
+    clock: &Clock,
+    amount: u64,
+    recipient: address,
+    pool_id: ID,
+    slippage_bps: u64,
+    ctx: &mut TxContext,
+) {
+    let Permit { id, capsule_id, max_amount, expires_at, signal_hash } = permit;
+    object::delete(id); // consumed — there is no second use of this object
+
+    assert!(capsule_id == object::id(capsule), E_PERMIT_WRONG_CAPSULE);
+    assert!(clock.timestamp_ms() < expires_at, E_PERMIT_EXPIRED);
+    assert!(amount <= max_amount, E_PERMIT_AMOUNT);
+
+    event::emit(PermitConsumed {
+        capsule_id,
+        max_amount,
+        amount,
+        signal_hash,
+        at_ms: clock.timestamp_ms(),
+    });
+
+    execute_inner(
+        vault, capsule, clock, amount, recipient, pool_id, slippage_bps,
+        option::some(max_amount), ctx,
+    )
+}
+
+/// Shared execution path. `elevated` carries the permit's ceiling when one
+/// was consumed, and is `none` for an ordinary action.
+fun execute_inner<T>(
+    vault: &mut Vault<T>,
+    capsule: &mut Capsule,
+    clock: &Clock,
+    amount: u64,
+    recipient: address,
+    pool_id: ID,
+    slippage_bps: u64,
+    elevated: Option<u64>,
+    ctx: &mut TxContext,
+) {
     let now = clock.timestamp_ms();
 
     // --- who is asking -------------------------------------------
@@ -553,9 +649,17 @@ public fun execute<T>(
 
     // --- how much ------------------------------------------------
     assert!(amount > 0, E_ZERO_AMOUNT);
-    assert!(amount <= capsule.per_action_cap, E_OVER_ACTION_CAP);
+
+    // The soft bounds. A permit lifts these two and only these two.
+    if (elevated.is_none()) {
+        assert!(amount <= capsule.per_action_cap, E_OVER_ACTION_CAP);
+        assert!(capsule.window_spent + amount <= capsule.per_window_cap, E_OVER_WINDOW_CAP);
+    };
+
+    // The hard bounds. Nothing lifts these — not a permit, not the issuer
+    // half-asleep at 3am, not a compromised backend minting permits freely.
+    // The ceiling was set once, at mint, by someone who was thinking clearly.
     assert!(amount <= capsule.hard_cap, E_OVER_HARD_CAP);
-    assert!(capsule.window_spent + amount <= capsule.per_window_cap, E_OVER_WINDOW_CAP);
     assert!(capsule.spent + amount <= capsule.total_cap, E_OVER_TOTAL_CAP);
 
     // --- where ---------------------------------------------------
@@ -583,8 +687,52 @@ public fun execute<T>(
         window_spent: capsule.window_spent,
         total_spent: capsule.spent,
         windows_used: capsule.windows_used,
+        elevated: elevated.is_some(),
         at_ms: now,
     });
+}
+
+/// Mint a one-shot escalation permit.
+///
+/// Called only after the backend has verified a fresh World ID proof from
+/// the issuer, with the signal bound to this exact request. The agent has no
+/// path to this function — it can ask, it cannot approve.
+///
+/// `max_amount` is clamped to the capsule's hard cap here as well as at
+/// execution, so even a compromised verifier cannot mint its way past it.
+public fun mint_permit(
+    _cap: &VerifierCap,
+    capsule: &Capsule,
+    max_amount: u64,
+    ttl_ms: u64,
+    signal_hash: vector<u8>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(capsule.holder.is_some(), E_NOT_CLAIMED);
+    assert!(!capsule.revoked && !capsule.surrendered, E_REVOKED);
+    assert!(max_amount <= capsule.hard_cap, E_OVER_HARD_CAP);
+
+    let expires_at = clock.timestamp_ms() + ttl_ms;
+    let permit = Permit {
+        id: object::new(ctx),
+        capsule_id: object::id(capsule),
+        max_amount,
+        expires_at,
+        signal_hash,
+    };
+
+    event::emit(PermitMinted {
+        permit_id: object::id(&permit),
+        capsule_id: object::id(capsule),
+        max_amount,
+        expires_at,
+        signal_hash,
+    });
+
+    // Straight to the agent. `Permit` has no `store`, so only this module
+    // can ever move one.
+    transfer::transfer(permit, *capsule.holder.borrow());
 }
 
 /// Record that the agent declined to act.
