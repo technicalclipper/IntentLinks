@@ -12,7 +12,17 @@
 import crypto from "node:crypto";
 import { computeZkLoginAddress, decodeJwt, genAddressSeed } from "@mysten/sui/zklogin";
 
-const PROVER_URL = process.env.ZKLOGIN_PROVER_URL ?? "https://prover.mystenlabs.com/v1";
+/**
+ * Use the *dev* prover for testnet.
+ *
+ * prover.mystenlabs.com is the mainnet endpoint and allowlists OAuth
+ * audiences — it rejects any Google client id Mysten has not registered,
+ * with "The audience … is not supported". prover-dev serves testnet and
+ * devnet and accepts ours. Getting this wrong looks like a broken sign-in
+ * rather than a misconfigured URL, so it is worth stating plainly.
+ */
+const PROVER_URL =
+  process.env.ZKLOGIN_PROVER_URL ?? "https://prover-dev.mystenlabs.com/v1";
 const SALT_SECRET = process.env.ZKLOGIN_SALT_SECRET;
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
@@ -203,11 +213,12 @@ export async function requestProof(req: ProofRequest): Promise<ZkProof> {
 
   if (!res.ok) {
     const body = await res.text();
-    if (res.status === 400 || res.status === 403) {
+    if (/audience/i.test(body)) {
       throw new Error(
-        `Prover rejected the request (${res.status}). If this mentions the audience, ` +
-          `the public prover does not know our Google client id and we need it ` +
-          `whitelisted, our own prover, or Enoki. Body: ${body.slice(0, 400)}`,
+        `The prover at ${PROVER_URL} does not accept our Google client id. ` +
+          `On testnet this almost always means ZKLOGIN_PROVER_URL is pointed at ` +
+          `the mainnet prover — use https://prover-dev.mystenlabs.com/v1. ` +
+          `Body: ${body.slice(0, 300)}`,
       );
     }
     throw new Error(`prover ${res.status}: ${body.slice(0, 400)}`);
