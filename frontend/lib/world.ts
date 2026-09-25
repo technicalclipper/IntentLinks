@@ -27,8 +27,19 @@ import type { IDKitResult } from "@worldcoin/idkit-core";
  */
 
 const APP_ID = process.env.NEXT_PUBLIC_WORLD_APP_ID;
+const RP_ID = process.env.WORLD_RP_ID;
 const ACTION = process.env.NEXT_PUBLIC_WORLD_ACTION_IDENTITY ?? "intentlink-identity";
-const VERIFY_URL = "https://developer.worldcoin.org/api/v2/verify";
+
+/**
+ * World ID 4.0 verification is keyed by **RP id**, not app id, and lives on
+ * developer.world.org rather than the old developer.worldcoin.org.
+ *
+ * The v2 endpoint exists, accepts an app id, and answers "Action not found"
+ * for actions that plainly do exist — because v4 actions live against the
+ * RP, which v2 knows nothing about. That sends you looking at the portal
+ * instead of at the URL.
+ */
+const VERIFY_URL = `https://developer.world.org/api/v4/verify/${RP_ID}`;
 
 export interface WorldVerification {
   ok: boolean;
@@ -112,21 +123,13 @@ export async function verifyWorldProof(
     return { ok: false, error: "this approval was issued for a different request" };
   }
 
-  const payload: Record<string, unknown> = {
-    action,
-    nullifier_hash: credential.nullifier,
-    merkle_root:
-      credential.merkle_root ??
-      (Array.isArray(credential.proof) ? credential.proof[4] : undefined),
-    proof: credential.proof,
-    verification_level: verificationLevel(credential.identifier),
-  };
-  if (credential.signal_hash) payload.signal_hash = credential.signal_hash;
-
-  const res = await fetch(`${VERIFY_URL}/${APP_ID}`, {
+  // v4 takes the result whole — protocol version, nonce, action and the
+  // credential responses. The flattening this used to do was for the v2
+  // endpoint, which speaks a different dialect.
+  const res = await fetch(VERIFY_URL, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...r, action }),
   });
 
   const body = (await res.json().catch(() => ({}))) as {
