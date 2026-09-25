@@ -55,6 +55,7 @@ export default function AuthCallback() {
           address: data.address,
           email: data.email ?? "",
           proof: data.proof,
+          idToken,
         });
 
         setAddress(data.address);

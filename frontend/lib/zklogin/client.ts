@@ -32,6 +32,12 @@ export interface ActiveSession extends EphemeralSession {
   address: string;
   email: string;
   proof: unknown;
+  /**
+   * Kept so the server can re-verify identity at a later step — redemption
+   * checks the email against the capsule's commitment, and it will not take
+   * the browser's word for who is signed in.
+   */
+  idToken: string;
 }
 
 function store(): Storage | null {
