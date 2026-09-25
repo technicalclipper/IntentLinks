@@ -516,7 +516,10 @@ public fun claim(
 /// day 6 is still window 6. "20 a day for 30 days" means exactly that, not
 /// "600 whenever you like".
 fun roll_window(c: &mut Capsule, now: u64): bool {
-    if (c.window_start_ms == 0) {
+    // `windows_used`, not `window_start_ms`, is the "never run" sentinel —
+    // a genesis-epoch clock makes a zero start time indistinguishable from
+    // an unset one, which silently reset the budget on every call.
+    if (c.windows_used == 0) {
         c.window_start_ms = now;
         c.window_spent = 0;
         c.windows_used = 1;
