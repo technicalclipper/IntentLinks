@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { extendedPublicKey, loadEphemeral, saveSession } from "@/lib/zklogin/client";
+import {
+  extendedPublicKey,
+  extendedPublicKeyDecimal,
+  loadEphemeral,
+  saveSession,
+} from "@/lib/zklogin/client";
 
 type Phase = "working" | "done" | "failed";
 
@@ -37,7 +42,8 @@ export default function AuthCallback() {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             idToken,
-            extendedEphemeralPublicKey: provedFor,
+            // decimal, not the base64 the SDK hands back
+            extendedEphemeralPublicKey: extendedPublicKeyDecimal(ephemeral),
             maxEpoch: ephemeral.maxEpoch,
             jwtRandomness: ephemeral.randomness,
           }),

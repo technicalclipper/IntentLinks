@@ -120,8 +120,31 @@ export function beginLogin(opts: {
   return { url: url.toString(), session };
 }
 
+/** Base64, as the SDK returns it. Used locally to detect proof/key drift. */
 export function extendedPublicKey(s: EphemeralSession): string {
   return getExtendedEphemeralPublicKey(keypairFromSession(s).getPublicKey());
+}
+
+/**
+ * The same key as a decimal bigint string, which is what the prover wants.
+ *
+ * getExtendedEphemeralPublicKey returns base64; the proving API expects the
+ * big-endian integer. Sending base64 does not fail — the prover accepts it,
+ * misparses it, and returns a perfectly well-formed proof committing to a
+ * key nobody holds. The transaction then dies at the validator with
+ * "Groth16 proof verify failed", which points at the proof rather than at
+ * the encoding two steps upstream.
+ */
+export function extendedPublicKeyDecimal(s: EphemeralSession): string {
+  const b64 = extendedPublicKey(s);
+  const bytes =
+    typeof atob === "function"
+      ? Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+      : new Uint8Array(Buffer.from(b64, "base64"));
+
+  let hex = "";
+  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+  return BigInt("0x" + hex).toString();
 }
 
 /**
