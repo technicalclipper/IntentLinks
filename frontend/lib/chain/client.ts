@@ -61,6 +61,20 @@ export async function signAndExecute(
     include: { effects: true, events: true, objectTypes: true },
   })) as unknown as Record<string, unknown>;
 
+  return normaliseExecResult(raw);
+}
+
+/**
+ * Turn a raw gRPC execution result into an ExecResult.
+ *
+ * Shared with the sponsored path, which submits two signatures rather than
+ * one but gets back exactly the same shape.
+ */
+export async function normaliseExecResult(
+  raw: Record<string, unknown>,
+): Promise<ExecResult> {
+  const client = suiClient();
+
   // gRPC returns a tagged union: { $kind: "Transaction", Transaction: {...} }.
   // Unwrap it, but tolerate a flat payload in case the shape changes again.
   interface TxPayload {

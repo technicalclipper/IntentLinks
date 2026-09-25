@@ -12,3 +12,5 @@ move/**/build/
 # os / editor
 .DS_Store
 *.log
+
+.data/

@@ -65,15 +65,18 @@ export function deriveSalt(claims: Pick<JwtClaims, "iss" | "aud" | "sub">): bigi
 
 // ===== JWT verification ==========================================
 
-let jwksCache: { keys: JsonWebKey[]; fetchedAt: number } | null = null;
+/** Node's crypto.JsonWebKey, not the DOM one — they are not the same type. */
+type Jwk = crypto.JsonWebKey & { kid: string };
 
-async function googleKeys(): Promise<JsonWebKey[]> {
+let jwksCache: { keys: Jwk[]; fetchedAt: number } | null = null;
+
+async function googleKeys(): Promise<Jwk[]> {
   if (jwksCache && Date.now() - jwksCache.fetchedAt < 60 * 60 * 1000) {
     return jwksCache.keys;
   }
   const res = await fetch(GOOGLE_JWKS);
   if (!res.ok) throw new Error(`could not fetch Google JWKS: ${res.status}`);
-  const { keys } = (await res.json()) as { keys: (JsonWebKey & { kid: string })[] };
+  const { keys } = (await res.json()) as { keys: Jwk[] };
   jwksCache = { keys, fetchedAt: Date.now() };
   return keys;
 }
@@ -97,9 +100,7 @@ export async function verifyGoogleIdToken(idToken: string): Promise<JwtClaims> {
   const header = JSON.parse(b64urlToBuf(headerB64).toString()) as { kid: string; alg: string };
   const claims = JSON.parse(b64urlToBuf(payloadB64).toString()) as JwtClaims;
 
-  const jwk = (await googleKeys()).find(
-    (k) => (k as JsonWebKey & { kid: string }).kid === header.kid,
-  );
+  const jwk = (await googleKeys()).find((k) => k.kid === header.kid);
   if (!jwk) throw new Error("id_token signed with an unknown key");
 
   const key = crypto.createPublicKey({ key: jwk, format: "jwk" });
