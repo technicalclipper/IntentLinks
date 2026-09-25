@@ -1,0 +1,14 @@
+# secrets — never commit
+.env
+.env.*
+!.env.example
+
+# deps
+node_modules/
+
+# move build artifacts
+move/**/build/
+
+# os / editor
+.DS_Store
+*.log
