@@ -47,17 +47,52 @@ export interface MintArgs {
   policyHash: string;
 }
 
-function build(action: Action, sender: string): Transaction {
+/**
+ * Coins belonging to the sender, merged into one input if needed.
+ *
+ * NOT `tx.gas` — under sponsorship that is the gas station's coin, so
+ * splitting from it would fund the vault with our money instead of the
+ * issuer's. Gas is sponsored; the contents of the vault are not.
+ */
+async function senderCoin(tx: Transaction, sender: string, amount: bigint) {
+  const res = await suiClient().core.listCoins({
+    owner: sender,
+    coinType: "0x2::sui::SUI",
+  });
+  const coins = ((res.objects ?? []) as unknown as { objectId: string; balance: string }[])
+    .sort((a, b) => (BigInt(b.balance) > BigInt(a.balance) ? 1 : -1));
+
+  const picked: string[] = [];
+  let have = 0n;
+  for (const c of coins) {
+    picked.push(c.objectId);
+    have += BigInt(c.balance);
+    if (have >= amount) break;
+  }
+
+  if (have < amount) {
+    throw new Error(
+      `Not enough SUI. This address holds ${have} MIST but the vault needs ${amount}. ` +
+        `Gas is sponsored, but the funds going into the vault are the issuer's own.`,
+    );
+  }
+
+  const [primary, ...rest] = picked;
+  if (rest.length) tx.mergeCoins(tx.object(primary), rest.map((id) => tx.object(id)));
+  return tx.splitCoins(tx.object(primary), [tx.pure.u64(amount)]);
+}
+
+async function build(action: Action, sender: string): Promise<Transaction> {
   const tx = new Transaction();
 
   switch (action.kind) {
     case "createVault": {
-      const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(BigInt(action.amount))]);
+      const [coin] = await senderCoin(tx, sender, BigInt(action.amount));
       il.createVault(tx, coin);
       break;
     }
     case "fundVault": {
-      const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(BigInt(action.amount))]);
+      const [coin] = await senderCoin(tx, sender, BigInt(action.amount));
       il.fundVault(tx, action.vaultId, coin);
       break;
     }
@@ -121,7 +156,7 @@ export async function prepare(
   sender: string,
 ): Promise<{ bytes: string; gasCoin: string }> {
   const client = suiClient();
-  const tx = build(action, sender);
+  const tx = await build(action, sender);
   const coin = await reserveGasCoin(GAS_BUDGET);
 
   tx.setSender(sender);
