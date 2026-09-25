@@ -39,16 +39,34 @@ export interface WorldVerification {
   error?: string;
 }
 
-interface V4Response {
+interface ResponseItem {
   identifier: string;
+  /** v3 hands back one hex string; v4 an array. */
+  proof: string | string[];
+  merkle_root?: string;
   nullifier: string;
-  proof: string[];
   signal_hash?: string;
-  issuer_schema_id?: number;
+}
+
+/**
+ * The verify endpoint speaks v3. A legacy credential identifier maps onto
+ * the verification level it expects.
+ */
+function verificationLevel(identifier: string): string {
+  const id = identifier.toLowerCase();
+  if (id.includes("orb")) return "orb";
+  if (id.includes("document") || id.includes("passport")) return "document";
+  return "device";
 }
 
 /**
  * Check a proof with World.
+ *
+ * IDKit returns a wrapper — protocol version, nonce, action, and an array of
+ * credential responses — while the verify endpoint wants a flat v3 payload
+ * with `nullifier_hash`, `merkle_root`, `proof` and `verification_level`.
+ * Forwarding the wrapper as-is gets "this attribute is required", which
+ * sounds like a configuration problem rather than a shape mismatch.
  *
  * `expectSignal` welds an approval to one exact request — for escalation
  * that is hash(capsule, amount, nonce), so a "yes" to 26 cannot be replayed
@@ -65,8 +83,19 @@ export async function verifyWorldProof(
     protocol_version?: string;
     action?: string;
     nonce?: string;
-    responses?: V4Response[];
+    responses?: ResponseItem[];
   };
+
+  console.log("[world] result", {
+    protocol_version: r.protocol_version,
+    action: r.action,
+    responses: r.responses?.map((x) => ({
+      identifier: x.identifier,
+      proofType: Array.isArray(x.proof) ? `array(${x.proof.length})` : "string",
+      hasMerkleRoot: Boolean(x.merkle_root),
+      hasSignal: Boolean(x.signal_hash),
+    })),
+  });
 
   // The action is signed into the RP context, so a proof produced for one
   // action cannot stand in for another.
@@ -80,28 +109,41 @@ export async function verifyWorldProof(
   }
 
   if (opts.expectSignal && credential.signal_hash !== opts.expectSignal) {
-    return {
-      ok: false,
-      error: "this approval was issued for a different request",
-    };
+    return { ok: false, error: "this approval was issued for a different request" };
   }
+
+  const payload: Record<string, unknown> = {
+    action,
+    nullifier_hash: credential.nullifier,
+    merkle_root:
+      credential.merkle_root ??
+      (Array.isArray(credential.proof) ? credential.proof[4] : undefined),
+    proof: credential.proof,
+    verification_level: verificationLevel(credential.identifier),
+  };
+  if (credential.signal_hash) payload.signal_hash = credential.signal_hash;
 
   const res = await fetch(`${VERIFY_URL}/${APP_ID}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ...r, action }),
+    body: JSON.stringify(payload),
   });
 
   const body = (await res.json().catch(() => ({}))) as {
     success?: boolean;
     code?: string;
     detail?: string;
+    attribute?: string;
   };
 
   if (!res.ok || body.success === false) {
+    console.log("[world] verify rejected", res.status, body);
     return {
       ok: false,
-      error: body.detail ?? body.code ?? `World rejected the proof (${res.status})`,
+      error:
+        [body.detail, body.attribute && `(${body.attribute})`].filter(Boolean).join(" ") ||
+        body.code ||
+        `World rejected the proof (${res.status})`,
     };
   }
 
