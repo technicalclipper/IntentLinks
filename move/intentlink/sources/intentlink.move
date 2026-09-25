@@ -7,6 +7,7 @@
 module intentlink::intentlink;
 
 use sui::balance::{Self, Balance};
+use sui::clock::Clock;
 use sui::coin::{Self, Coin};
 use sui::event;
 
@@ -21,6 +22,25 @@ const E_BAD_BENEFICIARY_MODE: u64 = 6;
 const E_BAD_CAPS: u64 = 7;
 const E_BAD_WINDOW: u64 = 8;
 const E_BAD_LIFETIME: u64 = 9;
+
+// --- the bounds. every one of these is a demo beat. ---------------
+
+const E_WRONG_RECIPIENT: u64 = 10;
+const E_NOT_CLAIMED: u64 = 11;
+const E_NOT_HOLDER: u64 = 12;
+const E_PAUSED: u64 = 13;
+const E_SURRENDERED: u64 = 14;
+const E_NOT_YET: u64 = 15;
+const E_EXPIRED: u64 = 16;
+const E_WINDOWS_EXHAUSTED: u64 = 17;
+const E_OVER_ACTION_CAP: u64 = 18;
+const E_OVER_WINDOW_CAP: u64 = 19;
+const E_OVER_TOTAL_CAP: u64 = 20;
+const E_OVER_HARD_CAP: u64 = 21;
+const E_POOL_NOT_SCOPED: u64 = 22;
+const E_SLIPPAGE: u64 = 23;
+const E_WRONG_BENEFICIARY: u64 = 24;
+const E_ZERO_AMOUNT: u64 = 25;
 
 // ===== Settlement modes ===========================================
 
@@ -118,10 +138,14 @@ public struct Capsule has key {
     policy_hash: vector<u8>,
 }
 
-/// Authority to mint escalation permits. Held by the backend that verifies
-/// World ID proofs. Making it an object means the trust boundary is explicit
-/// and auditable on-chain rather than implied.
-public struct EscalationCap has key, store {
+/// Authority held by the backend that verifies World ID proofs and Google
+/// id_tokens. Gates redemption and escalation-permit minting.
+///
+/// Making it an object states the trust boundary out loud: this key can
+/// attest that a human was verified. It cannot move funds, widen a bound,
+/// or exceed a hard cap — so a compromised backend is contained by the
+/// asserts rather than being game over.
+public struct VerifierCap has key, store {
     id: UID,
 }
 
@@ -156,11 +180,48 @@ public struct CapsuleMinted has copy, drop {
     policy_hash: vector<u8>,
 }
 
+public struct CapsuleRedeemed has copy, drop {
+    capsule_id: ID,
+    principal: address,
+    holder: address,
+    nullifier: vector<u8>,
+    at_ms: u64,
+}
+
+public struct Executed has copy, drop {
+    capsule_id: ID,
+    vault_id: ID,
+    amount: u64,
+    beneficiary: address,
+    pool_id: ID,
+    window_spent: u64,
+    total_spent: u64,
+    windows_used: u64,
+    at_ms: u64,
+}
+
+public struct WindowRolled has copy, drop {
+    capsule_id: ID,
+    window_index: u64,
+    window_start_ms: u64,
+    available: u64,
+}
+
+/// An action the agent chose not to take. Attested by the agent, not
+/// enforced by the chain — nothing can make a chain witness a non-action.
+/// Executions are enforced; refusals are attested.
+public struct Skipped has copy, drop {
+    capsule_id: ID,
+    reason_code: u8,
+    detail: vector<u8>,
+    at_ms: u64,
+}
+
 // ===== Init =======================================================
 
 fun init(ctx: &mut TxContext) {
     transfer::transfer(
-        EscalationCap { id: object::new(ctx) },
+        VerifierCap { id: object::new(ctx) },
         ctx.sender(),
     );
 }
@@ -316,6 +377,192 @@ public fun mint_capsule<T>(
 
     transfer::share_object(capsule);
     capsule_id
+}
+
+// ===== Redemption =================================================
+
+/// Bind an unclaimed capsule to a human and an agent.
+///
+/// Gated by `VerifierCap` because the checks that matter happen off-chain:
+/// the backend verifies a World ID proof (a unique human) and a Google
+/// id_token with `email_verified` (which human). Those two answer different
+/// questions and neither substitutes for the other.
+///
+/// `recipient_hash` is the salted hash of the normalised email. Salted
+/// because a bare email hash on a public chain is trivially brute-forced.
+public fun claim(
+    _cap: &VerifierCap,
+    capsule: &mut Capsule,
+    principal: address,
+    holder: address,
+    recipient_hash: Option<vector<u8>>,
+    clock: &Clock,
+) {
+    assert!(capsule.holder.is_none(), E_ALREADY_CLAIMED);
+    assert!(!capsule.surrendered, E_SURRENDERED);
+
+    let now = clock.timestamp_ms();
+    assert!(now < capsule.expires_at, E_EXPIRED);
+
+    // Bound mode: the presented email hash must match the commitment made at
+    // mint. Bearer mode (`bound_recipient` is none) skips this — the first
+    // verified human to arrive claims it.
+    if (capsule.bound_recipient.is_some()) {
+        assert!(recipient_hash.is_some(), E_WRONG_RECIPIENT);
+        assert!(
+            capsule.bound_recipient.borrow() == recipient_hash.borrow(),
+            E_WRONG_RECIPIENT,
+        );
+    };
+
+    capsule.principal = option::some(principal);
+    capsule.holder = option::some(holder);
+
+    event::emit(CapsuleRedeemed {
+        capsule_id: object::id(capsule),
+        principal,
+        holder,
+        nullifier: capsule.issuer_nullifier,
+        at_ms: now,
+    });
+}
+
+// ===== Execution ==================================================
+
+/// Advance the budget window if enough time has passed. Returns true if it
+/// rolled.
+///
+/// Unused windows are consumed, not banked: if the agent skips days 2-5,
+/// day 6 is still window 6. "20 a day for 30 days" means exactly that, not
+/// "600 whenever you like".
+fun roll_window(c: &mut Capsule, now: u64): bool {
+    if (c.window_start_ms == 0) {
+        c.window_start_ms = now;
+        c.window_spent = 0;
+        c.windows_used = 1;
+        true
+    } else if (now >= c.window_start_ms + c.window_ms) {
+        let elapsed = (now - c.window_start_ms) / c.window_ms;
+        c.window_start_ms = c.window_start_ms + elapsed * c.window_ms;
+        c.window_spent = 0;
+        c.windows_used = c.windows_used + elapsed;
+        true
+    } else {
+        false
+    }
+}
+
+/// Where proceeds are allowed to land. Derived from the capsule, never from
+/// caller input — the agent gets to *propose* a recipient and be refused,
+/// but it cannot widen the set of acceptable ones.
+fun resolve_beneficiary(c: &Capsule): address {
+    if (c.beneficiary_mode == BENEFICIARY_PRINCIPAL) {
+        *c.principal.borrow()
+    } else if (c.beneficiary_mode == BENEFICIARY_FIXED) {
+        *c.beneficiary_addr.borrow()
+    } else {
+        // BENEFICIARY_VAULT — the issuer is having an agent manage their own
+        // money, so value returns to them.
+        c.issuer
+    }
+}
+
+/// Spend from the vault under the capsule's bounds.
+///
+/// Every assert below is the product. If the backend were fully compromised
+/// it could propose anything it liked here and still not get past them.
+public fun execute<T>(
+    vault: &mut Vault<T>,
+    capsule: &mut Capsule,
+    clock: &Clock,
+    amount: u64,
+    recipient: address,
+    pool_id: ID,
+    slippage_bps: u64,
+    ctx: &mut TxContext,
+) {
+    let now = clock.timestamp_ms();
+
+    // --- who is asking -------------------------------------------
+    assert!(capsule.vault_id == object::id(vault), E_VAULT_MISMATCH);
+    assert!(capsule.holder.is_some(), E_NOT_CLAIMED);
+    assert!(*capsule.holder.borrow() == ctx.sender(), E_NOT_HOLDER);
+
+    // --- is the capability alive ---------------------------------
+    assert!(!vault.revoked, E_REVOKED);
+    assert!(!capsule.surrendered, E_SURRENDERED);
+    assert!(!capsule.issuer_paused && !capsule.principal_paused, E_PAUSED);
+    assert!(now >= capsule.not_before, E_NOT_YET);
+    assert!(now < capsule.expires_at, E_EXPIRED);
+
+    // --- recurrence ----------------------------------------------
+    let rolled = roll_window(capsule, now);
+    assert!(capsule.windows_used <= capsule.max_windows, E_WINDOWS_EXHAUSTED);
+    if (rolled) {
+        event::emit(WindowRolled {
+            capsule_id: object::id(capsule),
+            window_index: capsule.windows_used,
+            window_start_ms: capsule.window_start_ms,
+            available: capsule.per_window_cap,
+        });
+    };
+
+    // --- how much ------------------------------------------------
+    assert!(amount > 0, E_ZERO_AMOUNT);
+    assert!(amount <= capsule.per_action_cap, E_OVER_ACTION_CAP);
+    assert!(amount <= capsule.hard_cap, E_OVER_HARD_CAP);
+    assert!(capsule.window_spent + amount <= capsule.per_window_cap, E_OVER_WINDOW_CAP);
+    assert!(capsule.spent + amount <= capsule.total_cap, E_OVER_TOTAL_CAP);
+
+    // --- where ---------------------------------------------------
+    assert!(capsule.allowed_pools.contains(&pool_id), E_POOL_NOT_SCOPED);
+    assert!(slippage_bps <= capsule.max_slippage_bps, E_SLIPPAGE);
+
+    // The agent cannot steal the proceeds of an otherwise-valid action.
+    assert!(recipient == resolve_beneficiary(capsule), E_WRONG_BENEFICIARY);
+
+    // --- settle --------------------------------------------------
+    assert!(vault.balance.value() >= amount, E_INSUFFICIENT_VAULT);
+
+    capsule.window_spent = capsule.window_spent + amount;
+    capsule.spent = capsule.spent + amount;
+
+    let payment = coin::take(&mut vault.balance, amount, ctx);
+    transfer::public_transfer(payment, recipient);
+
+    event::emit(Executed {
+        capsule_id: object::id(capsule),
+        vault_id: object::id(vault),
+        amount,
+        beneficiary: recipient,
+        pool_id,
+        window_spent: capsule.window_spent,
+        total_spent: capsule.spent,
+        windows_used: capsule.windows_used,
+        at_ms: now,
+    });
+}
+
+/// Record that the agent declined to act.
+///
+/// Attested, not enforced — the chain cannot witness a non-action, and we
+/// do not claim otherwise. Only the holder can write to its own log.
+public fun log_skip(
+    capsule: &Capsule,
+    clock: &Clock,
+    reason_code: u8,
+    detail: vector<u8>,
+    ctx: &TxContext,
+) {
+    assert!(capsule.holder.is_some(), E_NOT_CLAIMED);
+    assert!(*capsule.holder.borrow() == ctx.sender(), E_NOT_HOLDER);
+
+    event::emit(Skipped {
+        capsule_id: object::id(capsule),
+        reason_code,
+        detail,
+        at_ms: clock.timestamp_ms(),
+    });
 }
 
 // ===== Read accessors =============================================
