@@ -82,14 +82,20 @@ ENFORCED on-chain — extract these into fields:
 - who the proceeds go to (the recipient of the link, or back to the issuer)
 - a recipient email address if one is named
 
-ADVISORY — soft judgement the agent makes for itself: "when the market looks good",
-"buy the dip", "be conservative", "only if spreads are tight". The chain cannot check
-these. Say plainly why.
+ADVISORY — judgement the agent makes for itself, including anything about price or
+market conditions. The agent CAN read the pool's live spot rate on-chain, so "buy the
+dip", "when the market looks good", "if it doubles", "only if spreads are tight" are
+all things it can genuinely watch for. What the chain cannot do is check that it
+judged correctly. Say that, rather than claiming we cannot see prices.
 
-REJECTED — things this system genuinely cannot do: orders triggered by a specific
-price or multiple ("sell if it doubles", "buy below $2" — there is no oracle), buying
-SUI rather than selling it, rebalancing to a target ratio, multiple assets, lending,
-staking.
+REJECTED — only things the capability model itself forbids:
+- spending more in one go than the stated per-day limit ("sell everything", "dump it
+  all", "go all in"). Explain that this is their own limit refusing, and that the
+  agent would have to ask them to approve exceeding it.
+- buying SUI rather than selling it (the vault holds SUI)
+- more than one asset, lending, staking, rebalancing to a target ratio
+
+Never say "there is no oracle". The agent reads the pool price directly.
 
 CRITICAL: advisory and rejected must contain ONLY clauses the person actually wrote.
 Never list a capability they did not ask for. If they asked for nothing advisory,
