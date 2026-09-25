@@ -1,6 +1,11 @@
 "use client";
 
-import { proofOfHuman, useIDKitRequest, type IDKitResult, type RpContext } from "@worldcoin/idkit";
+import {
+  IDKitRequestWidget,
+  proofOfHuman,
+  type IDKitResult,
+  type RpContext,
+} from "@worldcoin/idkit";
 import { use, useEffect, useState } from "react";
 import { useZkLogin } from "@/lib/zklogin/useZkLogin";
 
@@ -8,14 +13,6 @@ const APP_ID = process.env.NEXT_PUBLIC_WORLD_APP_ID as `app_${string}`;
 const ACTION = process.env.NEXT_PUBLIC_WORLD_ACTION_IDENTITY ?? "intentlink-identity";
 const SUI = 1_000_000_000;
 
-/** Placeholder until the server signs a real one — IDKit needs a shape. */
-const UNSIGNED: RpContext = {
-  rp_id: "",
-  nonce: "",
-  created_at: 0,
-  expires_at: 0,
-  signature: "",
-};
 
 interface Intent {
   name: string;
@@ -47,6 +44,7 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
   const [rejected, setRejected] = useState<{ issuedTo: string; signedInAs: string } | null>(null);
   const [claimed, setClaimed] = useState(false);
   const [rp, setRp] = useState<RpContext | null>(null);
+  const [worldOpen, setWorldOpen] = useState(false);
 
   // v4 proof requests must be signed by the relying party, so the browser
   // asks our server for a signed context before it can open the widget.
@@ -67,19 +65,6 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
       .then((d) => (d.error ? setError(d.error) : setIntent(d)))
       .catch((e) => setError(String(e)));
   }, [label, claimed]);
-
-  const world = useIDKitRequest({
-    app_id: APP_ID,
-    action: ACTION,
-    rp_context: rp ?? UNSIGNED,
-    allow_legacy_proofs: true,
-    preset: proofOfHuman(),
-  });
-
-  useEffect(() => {
-    if (world.isSuccess && world.result) void redeem(world.result);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [world.isSuccess]);
 
   async function redeem(proof: IDKitResult) {
     if (!session) return;
@@ -199,22 +184,25 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
       ) : (
         <div className="mt-6">
           <button
-            onClick={world.open}
+            onClick={() => setWorldOpen(true)}
             disabled={claiming || !rp}
             className="border border-ink bg-ink px-4 py-2 text-sm text-paper disabled:opacity-40"
           >
-            {claiming
-              ? "Redeeming…"
-              : !rp
-                ? "Preparing…"
-                : world.isAwaitingUserConfirmation
-                  ? "Waiting for World App…"
-                  : "Verify with World to redeem"}
+            {claiming ? "Redeeming…" : !rp ? "Preparing…" : "Verify with World to redeem"}
           </button>
-          {world.connectorURI && world.isOpen && (
-            <p className="val mt-3 text-xs break-all text-muted">
-              Open in World App: {world.connectorURI.slice(0, 60)}…
-            </p>
+
+          {/* World's own modal — QR on desktop, deep link on mobile. */}
+          {rp && (
+            <IDKitRequestWidget
+              open={worldOpen}
+              onOpenChange={setWorldOpen}
+              app_id={APP_ID}
+              action={ACTION}
+              rp_context={rp}
+              allow_legacy_proofs
+              preset={proofOfHuman()}
+              onSuccess={redeem}
+            />
           )}
           <p className="mt-3 text-xs text-muted">
             One link, one human — so a forwarded copy cannot be claimed twice.
