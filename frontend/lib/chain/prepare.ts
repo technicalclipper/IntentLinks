@@ -1,6 +1,7 @@
 import { Transaction } from "@mysten/sui/transactions";
 import { fromBase64, toBase64 } from "@mysten/sui/utils";
 import { sponsorAddress, sponsorKeypair, suiClient } from "./client";
+import { releaseGasCoin, reserveGasCoin } from "./gaspool";
 import { VERIFIER_CAP_ID } from "./config";
 import * as il from "./tx";
 
@@ -108,51 +109,54 @@ function build(action: Action, sender: string): Transaction {
   return tx;
 }
 
-/** Build and sponsor. Returns bytes for the user to sign. */
-export async function prepare(action: Action, sender: string): Promise<{ bytes: string }> {
+/**
+ * Build and sponsor. Returns bytes for the user to sign.
+ *
+ * The gas coin is reserved for the round trip — signing happens in the
+ * browser, and anything that spends this coin in the meantime would make the
+ * pinned version stale.
+ */
+export async function prepare(
+  action: Action,
+  sender: string,
+): Promise<{ bytes: string; gasCoin: string }> {
   const client = suiClient();
-  const sponsor = sponsorKeypair();
   const tx = build(action, sender);
+  const coin = await reserveGasCoin(GAS_BUDGET);
 
   tx.setSender(sender);
   tx.setGasOwner(sponsorAddress());
   tx.setGasBudget(GAS_BUDGET);
-  tx.setGasPayment([await gasCoin()]);
+  tx.setGasPayment([coin]);
 
-  return { bytes: toBase64(await tx.build({ client })) };
+  try {
+    return { bytes: toBase64(await tx.build({ client })), gasCoin: coin.objectId };
+  } catch (e) {
+    releaseGasCoin(coin.objectId);
+    throw e;
+  }
 }
 
-/** Co-sign with the gas station and submit. */
-export async function execute(bytesB64: string, userSignature: string) {
+/** Co-sign with the gas station and submit, then free the coin. */
+export async function execute(
+  bytesB64: string,
+  userSignature: string,
+  gasCoin?: string,
+) {
   const client = suiClient();
   const sponsor = sponsorKeypair();
   const bytes = fromBase64(bytesB64);
 
-  const sponsorSig = (await sponsor.signTransaction(bytes)).signature;
-
-  const raw = (await client.core.executeTransaction({
-    transaction: bytes,
-    signatures: [userSignature, sponsorSig],
-    include: { effects: true, events: true, objectTypes: true },
-  })) as unknown as Record<string, unknown>;
-
-  return raw;
-}
-
-async function gasCoin() {
-  const res = await suiClient().core.listCoins({
-    owner: sponsorAddress(),
-    coinType: "0x2::sui::SUI",
-  });
-  const coins = (res.objects ?? []) as {
-    objectId: string;
-    version: string;
-    digest: string;
-    balance: string;
-  }[];
-  const coin = coins.find((c) => BigInt(c.balance) >= GAS_BUDGET);
-  if (!coin) throw new Error("Gas station is out of funds — top up the sponsor address.");
-  return { objectId: coin.objectId, version: coin.version, digest: coin.digest };
+  try {
+    const sponsorSig = (await sponsor.signTransaction(bytes)).signature;
+    return (await client.core.executeTransaction({
+      transaction: bytes,
+      signatures: [userSignature, sponsorSig],
+      include: { effects: true, events: true, objectTypes: true },
+    })) as unknown as Record<string, unknown>;
+  } finally {
+    if (gasCoin) releaseGasCoin(gasCoin);
+  }
 }
 
 export { VERIFIER_CAP_ID };

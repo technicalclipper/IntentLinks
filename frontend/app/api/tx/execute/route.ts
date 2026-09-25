@@ -11,15 +11,16 @@ import { execute } from "@/lib/chain/prepare";
  */
 export async function POST(request: Request) {
   try {
-    const { bytes, signature } = (await request.json()) as {
+    const { bytes, signature, gasCoin } = (await request.json()) as {
       bytes?: string;
       signature?: string;
+      gasCoin?: string;
     };
     if (!bytes || !signature) {
       return Response.json({ error: "bytes and signature are required" }, { status: 400 });
     }
 
-    const raw = await execute(bytes, signature);
+    const raw = await execute(bytes, signature, gasCoin);
     const result = await normaliseExecResult(raw);
 
     return Response.json({

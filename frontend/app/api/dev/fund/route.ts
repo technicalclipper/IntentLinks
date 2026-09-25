@@ -1,5 +1,6 @@
 import { Transaction } from "@mysten/sui/transactions";
 import { signAndExecute, sponsorAddress, sponsorKeypair } from "@/lib/chain/client";
+import { releaseGasCoin, reserveGasCoin } from "@/lib/chain/gaspool";
 
 /**
  * Dev-only faucet.
@@ -23,14 +24,24 @@ export async function POST(request: Request) {
 
     const value = BigInt(amount ?? 200_000_000); // 0.2 SUI
 
-    const tx = new Transaction();
-    const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(value)]);
-    tx.transferObjects([coin], tx.pure.address(address));
-    tx.setSender(sponsorAddress());
-    tx.setGasBudget(50_000_000);
+    // Take a coin from the pool rather than letting the SDK auto-select —
+    // it would happily pick one that a prepared transaction is already
+    // pinned to, and invalidate that signature's gas version.
+    const budget = value + 50_000_000n;
+    const gas = await reserveGasCoin(budget);
+    try {
+      const tx = new Transaction();
+      const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(value)]);
+      tx.transferObjects([coin], tx.pure.address(address));
+      tx.setSender(sponsorAddress());
+      tx.setGasBudget(50_000_000);
+      tx.setGasPayment([gas]);
 
-    const r = await signAndExecute(tx, sponsorKeypair());
-    return Response.json({ success: r.success, digest: r.digest, error: r.error });
+      const r = await signAndExecute(tx, sponsorKeypair());
+      return Response.json({ success: r.success, digest: r.digest, error: r.error });
+    } finally {
+      releaseGasCoin(gas.objectId);
+    }
   } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 400 });
   }

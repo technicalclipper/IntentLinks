@@ -29,7 +29,11 @@ export async function sendAction(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ action, sender: session.address }),
   });
-  const prepared = (await prep.json()) as { bytes?: string; error?: string };
+  const prepared = (await prep.json()) as {
+    bytes?: string;
+    gasCoin?: string;
+    error?: string;
+  };
   if (!prep.ok || !prepared.bytes) throw new Error(prepared.error ?? "could not prepare");
 
   const signature = await signAsZkLogin(session, fromBase64(prepared.bytes));
@@ -37,7 +41,11 @@ export async function sendAction(
   const res = await fetch("/api/tx/execute", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ bytes: prepared.bytes, signature }),
+    body: JSON.stringify({
+      bytes: prepared.bytes,
+      signature,
+      gasCoin: prepared.gasCoin,
+    }),
   });
   const out = (await res.json()) as SentResult & { error?: string };
   if (!res.ok && !out.abort) throw new Error(out.error ?? "could not execute");
