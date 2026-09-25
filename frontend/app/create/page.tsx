@@ -236,10 +236,35 @@ export default function Create() {
   if (!session) {
     return (
       <Shell>
-        <p className="text-sm">Sign in to create an intent.</p>
-        <button onClick={signIn} className="mt-4 border border-ink bg-ink px-4 py-2 text-sm text-paper">
-          Continue with Google
+        <h1 className="text-5xl leading-[0.95] tracking-tight">
+          Say what the
+          <br />
+          agent <span className="text-accent">may do.</span>
+        </h1>
+        <p className="mt-6 max-w-md leading-relaxed text-muted">
+          Write it in plain English. You will see exactly which parts become
+          on-chain limits — and which parts we refuse — before anything is created.
+        </p>
+
+        <div className="panel mt-10 p-6">
+          <p className="text-xs tracking-widest text-muted uppercase">For example</p>
+          <p className="mt-3 leading-relaxed">
+            &ldquo;Sell 0.02 SUI a day for 30 days, max 1% slippage, send the DUSD
+            to bob@gmail.com.&rdquo;
+          </p>
+          <div className="mt-5 space-y-1.5 border-t border-line pt-5 text-sm">
+            <p className="text-pass">⛓ 0.02 SUI per day · 30 periods · 1% slippage</p>
+            <p className="text-block">⨯ anything above that — refused by the chain</p>
+          </div>
+        </div>
+
+        <button
+          onClick={signIn}
+          className="mt-8 w-full border border-ink bg-ink px-5 py-3.5 text-paper"
+        >
+          Continue with Google →
         </button>
+        <p className="mt-3 text-xs text-muted">No wallet. No seed phrase. No gas.</p>
       </Shell>
     );
   }
@@ -247,8 +272,8 @@ export default function Create() {
   if (phase === "done" && link) {
     return (
       <Shell>
-        <p className="text-sm text-pass">Intent created</p>
-        <p className="val mt-3 text-2xl break-all">{link.name}</p>
+        <p className="text-xs tracking-widest text-pass uppercase">Intent created</p>
+        <p className="val mt-4 text-3xl leading-tight break-all">{link.name}</p>
         <p className="mt-2 text-sm text-muted">
           Send this to {c?.recipientEmail ?? "anyone"}. They need no wallet and pay no gas.
         </p>
@@ -273,9 +298,9 @@ export default function Create() {
   if (phase === "minting") {
     return (
       <Shell>
-        <p className="text-sm text-muted">Creating</p>
-        <p className="mt-2 text-2xl">{step}…</p>
-        <p className="mt-6 text-xs text-muted">
+        <p className="text-xs tracking-widest text-muted uppercase">Creating</p>
+        <p className="mt-4 text-4xl leading-tight tracking-tight">{step}…</p>
+        <p className="mt-8 text-sm text-muted">
           Two transactions on Sui, then the name on Ethereum.
         </p>
       </Shell>
@@ -284,167 +309,220 @@ export default function Create() {
 
   if (phase === "review" && c) {
     return (
-      <Shell>
-        <button onClick={() => setPhase("compose")} className="text-sm text-muted">
+      <Shell wide>
+        <button onClick={() => setPhase("compose")} className="text-sm text-muted hover:text-ink">
           ← edit
         </button>
 
-        <p className="mt-6 text-xs tracking-wide text-muted uppercase">Enforced on-chain</p>
-        <div className="panel mt-3 p-5">
-          <dl className="space-y-1.5 text-sm">
-            <Row k="Action" v={c.goal} />
-            <Row k="Per day" v={`${c.perDay} SUI`} />
-            <Row k="Periods" v={`${c.days} × 24h`} />
-            <Row k="Total" v={`${(c.perDay * c.days).toFixed(4)} SUI`} />
-            <Row k="Max slippage" v={`${c.maxSlippagePct}%`} />
-            <Row k="Pool" v="one approved pool" />
-            <Row
-              k="Proceeds"
-              v={c.beneficiary === "recipient" ? "to the recipient" : "back to you"}
-            />
-            {c.recipientEmail && <Row k="Only for" v={c.recipientEmail} />}
-            <Row k="Hard ceiling" v={`${(c.perDay * 5).toFixed(4)} SUI`} note="never exceeded" />
-          </dl>
-          <p className="mt-4 text-xs text-muted">
-            Every line becomes an <span className="val">assert</span>. The chain refuses
-            anything outside them.
-          </p>
+        <p className="mt-8 text-lg leading-relaxed">
+          &ldquo;<span className="text-muted">{text}</span>&rdquo;
+        </p>
+
+        {/* Enforced ------------------------------------------------ */}
+        <div className="row-in mt-10">
+          <div className="flex items-baseline gap-3">
+            <span className="val text-pass">⛓</span>
+            <p className="text-xs tracking-widest text-muted uppercase">
+              Enforced on-chain
+            </p>
+          </div>
+
+          <div className="panel clause mt-3 p-6 text-pass">
+            <div className="grid grid-cols-2 gap-x-8 gap-y-5 text-ink sm:grid-cols-3">
+              <Figure k="Per day" v={`${c.perDay}`} unit="SUI" />
+              <Figure k="Periods" v={`${c.days}`} unit="× 24h" />
+              <Figure k="Total" v={(c.perDay * c.days).toFixed(3)} unit="SUI" />
+              <Figure k="Max slippage" v={`${c.maxSlippagePct}`} unit="%" />
+              <Figure k="Hard ceiling" v={(c.perDay * 5).toFixed(3)} unit="SUI" accent />
+              <Figure k="Pool" v="1" unit="approved" />
+            </div>
+
+            <dl className="mt-6 space-y-1.5 border-t border-line pt-5 text-sm text-ink">
+              <Row k="Action" v={c.goal} />
+              <Row
+                k="Proceeds"
+                v={c.beneficiary === "recipient" ? "to the recipient" : "back to you"}
+              />
+              {c.recipientEmail && <Row k="Only for" v={c.recipientEmail} />}
+            </dl>
+
+            <p className="mt-5 text-xs text-muted">
+              Every line becomes an <span className="val">assert!</span>. The chain
+              refuses anything outside them — not the agent.
+            </p>
+          </div>
         </div>
 
+        {/* Advisory ------------------------------------------------ */}
         {c.advisory.length > 0 && (
-          <>
-            <p className="mt-6 text-xs tracking-wide text-pending uppercase">
-              ◇ The agent decides these
-            </p>
-            <div className="panel mt-3 p-5">
-              {c.advisory.map((a, i) => (
-                <div key={i} className={i ? "mt-3" : ""}>
-                  <p className="text-sm">&ldquo;{a.text}&rdquo;</p>
-                  <p className="mt-1 text-xs text-muted">{a.why}</p>
-                </div>
-              ))}
-              <p className="mt-4 text-xs text-muted">
-                Not enforceable on-chain. Your limits above still apply regardless.
+          <div className="row-in mt-8" style={{ animationDelay: "90ms" }}>
+            <div className="flex items-baseline gap-3">
+              <span className="val text-pending">◇</span>
+              <p className="text-xs tracking-widest text-muted uppercase">
+                The agent decides these
               </p>
             </div>
-          </>
-        )}
-
-        {c.rejected.length > 0 && (
-          <>
-            <p className="mt-6 text-xs tracking-wide text-block uppercase">✗ Not possible</p>
-            <div className="panel mt-3 p-5">
-              {c.rejected.map((a, i) => (
-                <div key={i} className={i ? "mt-3" : ""}>
-                  <p className="text-sm">&ldquo;{a.text}&rdquo;</p>
+            <div className="panel clause mt-3 p-6 text-pending">
+              {c.advisory.map((a, i) => (
+                <div key={i} className={i ? "mt-4" : ""}>
+                  <p className="text-ink">&ldquo;{a.text}&rdquo;</p>
                   <p className="mt-1 text-xs text-muted">{a.why}</p>
                 </div>
               ))}
-              <p className="mt-4 text-xs text-muted">
+              <p className="mt-5 text-xs text-muted">
+                Not enforceable. Your limits above still apply regardless.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Rejected ------------------------------------------------ */}
+        {c.rejected.length > 0 && (
+          <div className="row-in mt-8" style={{ animationDelay: "180ms" }}>
+            <div className="flex items-baseline gap-3">
+              <span className="val text-block">⨯</span>
+              <p className="text-xs tracking-widest text-muted uppercase">Refused</p>
+            </div>
+            <div className="panel clause mt-3 p-6 text-block">
+              {c.rejected.map((a, i) => (
+                <div key={i} className={i ? "mt-4" : ""}>
+                  <p className="text-ink">&ldquo;{a.text}&rdquo;</p>
+                  <p className="mt-1 text-xs text-muted">{a.why}</p>
+                </div>
+              ))}
+              <p className="mt-5 text-xs text-muted">
                 Left out of the capability rather than quietly ignored.
               </p>
             </div>
-          </>
+          </div>
         )}
 
-        {error && <p className="mt-4 text-sm text-block">{error}</p>}
+        {error && <p className="mt-6 text-sm text-block">{error}</p>}
 
-        {issuerNullifier ? (
-          <>
-            <p className="mt-6 text-sm text-pass">
-              ⛓ Verified — recorded on the capsule, so only you can approve the agent going
-              past these limits.
-            </p>
-            <button
-              onClick={mint}
-              className="mt-4 border border-ink bg-ink px-5 py-2.5 text-sm text-paper"
-            >
-              Create intent
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              onClick={() => setWorldOpen(true)}
-              disabled={!rp || verifying}
-              className="mt-6 border border-ink bg-ink px-5 py-2.5 text-sm text-paper disabled:opacity-40"
-            >
-              {verifying ? "Verifying…" : !rp ? "Preparing…" : "Verify with World & create"}
-            </button>
-            <p className="mt-3 text-xs text-muted">
-              Your proof is recorded on the capsule. It is what lets the agent ask you — and
-              only you — to exceed a limit.
-            </p>
-            {rp && (
-              <IDKitRequestWidget
-                open={worldOpen}
-                onOpenChange={setWorldOpen}
-                app_id={APP_ID}
-                action={ACTION}
-                rp_context={rp}
-                allow_legacy_proofs
-                action_description="Create an IntentLink permission"
-                preset={CREDENTIAL()}
-                onSuccess={onVerified}
-              />
-            )}
-          </>
-        )}
+        <div className="mt-10 border-t border-line pt-8">
+          {issuerNullifier ? (
+            <>
+              <p className="text-sm text-pass">
+                ⛓ Verified — recorded on the capsule, so only you can approve the
+                agent going past these limits.
+              </p>
+              <button
+                onClick={mint}
+                className="mt-5 w-full border border-ink bg-ink px-5 py-3.5 text-paper"
+              >
+                Create intent →
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setWorldOpen(true)}
+                disabled={!rp || verifying}
+                className="w-full border border-ink bg-ink px-5 py-3.5 text-paper disabled:opacity-30"
+              >
+                {verifying ? "Verifying…" : !rp ? "Preparing…" : "Verify with World & create →"}
+              </button>
+              <p className="mt-4 text-xs leading-relaxed text-muted">
+                Your proof is recorded on the capsule. It is what lets the agent ask
+                you — and only you — to exceed a limit.
+              </p>
+              {rp && (
+                <IDKitRequestWidget
+                  open={worldOpen}
+                  onOpenChange={setWorldOpen}
+                  app_id={APP_ID}
+                  action={ACTION}
+                  rp_context={rp}
+                  allow_legacy_proofs
+                  action_description="Create an IntentLink permission"
+                  preset={CREDENTIAL()}
+                  onSuccess={onVerified}
+                />
+              )}
+            </>
+          )}
+        </div>
       </Shell>
     );
   }
 
   return (
     <Shell>
-      <h1 className="text-3xl tracking-tight">New intent</h1>
-      <p className="mt-2 text-muted">Say what the agent may do.</p>
+      <h1 className="text-5xl leading-[0.95] tracking-tight">
+        Say what the
+        <br />
+        agent <span className="text-accent">may do.</span>
+      </h1>
+      <p className="mt-6 max-w-md leading-relaxed text-muted">
+        Write it however you like. You will see exactly which parts become
+        on-chain limits — and which parts we refuse — before anything is created.
+      </p>
 
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={4}
         placeholder="Sell 0.02 SUI a day for 30 days, max 1% slippage, send the DUSD to bob@gmail.com"
-        className="mt-6 w-full resize-none border border-line bg-panel px-4 py-3 text-sm leading-relaxed"
+        className="panel mt-10 w-full resize-none px-5 py-4 leading-relaxed outline-none focus:border-ink"
       />
 
-      <div className="mt-3 space-y-1.5">
+      <p className="mt-6 text-xs tracking-wide text-muted uppercase">Try one</p>
+      <div className="mt-3 space-y-2">
         {EXAMPLES.map((e) => (
           <button
             key={e}
             onClick={() => setText(e)}
-            className="block text-left text-xs text-muted hover:text-ink"
+            className="panel block w-full px-4 py-3 text-left text-sm text-muted transition hover:border-ink hover:text-ink"
           >
-            → {e}
+            {e}
           </button>
         ))}
       </div>
 
-      {error && <p className="mt-4 text-sm text-block">{error}</p>}
+      {error && <p className="mt-6 text-sm text-block">{error}</p>}
 
       <button
         onClick={compile}
         disabled={!text.trim() || compiling}
-        className="mt-6 border border-ink bg-ink px-5 py-2.5 text-sm text-paper disabled:opacity-40"
+        className="mt-8 w-full border border-ink bg-ink px-5 py-3.5 text-paper disabled:opacity-30"
       >
-        {compiling ? "Reading…" : "Compile"}
+        {compiling ? "Reading…" : "Compile →"}
       </button>
-      <p className="mt-3 text-xs text-muted">
-        You will see exactly which parts become on-chain limits before anything is created.
-      </p>
     </Shell>
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
   return (
-    <main className="min-h-dvh p-6">
-      <div className="mx-auto max-w-xl pt-10">
+    <main className="relative min-h-dvh overflow-hidden p-6">
+      <div className="grid-bg grid-fade pointer-events-none absolute inset-0" />
+      <div className={`relative mx-auto pt-14 pb-24 ${wide ? "max-w-2xl" : "max-w-xl"}`}>
         <a href="/" className="val text-sm text-accent">
           [→]
         </a>
-        <div className="mt-6">{children}</div>
+        <div className="mt-8">{children}</div>
       </div>
     </main>
+  );
+}
+
+function Figure({
+  k,
+  v,
+  unit,
+  accent,
+}: {
+  k: string;
+  v: string;
+  unit: string;
+  accent?: boolean;
+}) {
+  return (
+    <div>
+      <p className="text-xs text-muted">{k}</p>
+      <p className={`figure mt-1 text-3xl ${accent ? "text-accent" : ""}`}>{v}</p>
+      <p className="text-xs text-muted">{unit}</p>
+    </div>
   );
 }
 

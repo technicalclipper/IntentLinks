@@ -81,3 +81,13 @@ body {
   to   { opacity: 1; transform: none; }
 }
 .row-in { animation: rowIn 260ms ease-out both; }
+
+/* Numbers that carry weight — caps, ceilings, the figures a person checks. */
+.figure {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* A clause the chain will enforce, an agent will judge, or we refused. */
+.clause { border-left: 3px solid currentColor; }
