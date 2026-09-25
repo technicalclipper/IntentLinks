@@ -54,3 +54,30 @@ body {
 .rule {
   border-color: var(--color-line);
 }
+
+/*
+  A faint measuring grid. The product is an instrument that refuses things —
+  graph paper reads closer to that than a gradient does, and it gives the
+  page structure without asking for attention.
+*/
+.grid-bg {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--color-line) 55%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--color-line) 55%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* Fades the grid out at the edges so it frames rather than tiles. */
+.grid-fade {
+  -webkit-mask-image: radial-gradient(ellipse 85% 65% at 50% 38%, #000 40%, transparent 100%);
+  mask-image: radial-gradient(ellipse 85% 65% at 50% 38%, #000 40%, transparent 100%);
+}
+
+/* State stripe down the left of a console row. */
+.stripe { box-shadow: inset 3px 0 0 0 currentColor; }
+
+@keyframes rowIn {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: none; }
+}
+.row-in { animation: rowIn 260ms ease-out both; }
