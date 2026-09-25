@@ -1,12 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import {
+  IDKitRequestWidget,
+  deviceLegacy,
+  orbLegacy,
+  proofOfHuman,
+  type IDKitResult,
+  type RpContext,
+} from "@worldcoin/idkit";
 import { useZkLogin } from "@/lib/zklogin/useZkLogin";
 import { createdOfType, sendAction } from "@/lib/tx-client";
 import { StaleSessionError } from "@/lib/zklogin/client";
 
 const SUI = 1_000_000_000;
 const DAY_MS = 86_400_000;
+
+const APP_ID = process.env.NEXT_PUBLIC_WORLD_APP_ID as `app_${string}`;
+const ACTION = process.env.NEXT_PUBLIC_WORLD_ACTION_IDENTITY ?? "intentlink-identity";
+const CREDENTIAL =
+  ({ device: deviceLegacy, orb: orbLegacy, human: proofOfHuman } as const)[
+    process.env.NEXT_PUBLIC_WORLD_CREDENTIAL ?? "human"
+  ] ?? proofOfHuman;
 
 /** A stand-in pool id until a real DEX is wired in. Scope is what matters. */
 const POOL = "0x00000000000000000000000000000000000000000000000000000000000900d1";
@@ -28,6 +43,45 @@ export default function Create() {
   const [step, setStep] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [link, setLink] = useState<{ name: string; url: string } | null>(null);
+
+  // The issuer proves personhood before minting, and we record the nullifier
+  // on the capsule. Escalation later compares a fresh proof against it, so
+  // the guarantee is "the same human who set this limit", not merely "a
+  // human". Without it recorded here, that check has nothing to compare to.
+  const [issuerNullifier, setIssuerNullifier] = useState<string | null>(null);
+  const [rp, setRp] = useState<RpContext | null>(null);
+  const [worldOpen, setWorldOpen] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/world/request", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: ACTION }),
+    })
+      .then((r) => r.json())
+      .then((d) => d.rp_context && setRp(d.rp_context))
+      .catch(() => {});
+  }, []);
+
+  async function onVerified(proof: IDKitResult) {
+    setVerifying(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/world/verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ proof, action: ACTION }),
+      });
+      const out = await res.json();
+      if (!res.ok) throw new Error(out.error ?? "verification failed");
+      setIssuerNullifier(out.nullifier);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setVerifying(false);
+    }
+  }
 
   const [d, setD] = useState<Draft>({
     recipient: "",
@@ -112,7 +166,7 @@ export default function Create() {
           args: {
             vaultId,
             boundRecipient,
-            issuerNullifier: "0x00",
+            issuerNullifier: issuerNullifier ?? "0x00",
             perActionCap: policy.perActionCap,
             totalCap: policy.totalCap,
             hardCap: policy.hardCap,
@@ -281,13 +335,48 @@ export default function Create() {
 
       {error && <p className="mt-4 text-sm text-block">{error}</p>}
 
-      <button
-        onClick={mint}
-        disabled={!Number(d.perDay) || !Number(d.days)}
-        className="mt-6 border border-ink bg-ink px-5 py-2.5 text-sm text-paper disabled:opacity-40"
-      >
-        Create intent
-      </button>
+      {issuerNullifier ? (
+        <>
+          <p className="mt-6 text-sm text-pass">
+            ⛓ Verified — recorded on the capsule, so only you can approve the agent
+            going past these limits.
+          </p>
+          <button
+            onClick={mint}
+            disabled={!Number(d.perDay) || !Number(d.days)}
+            className="mt-4 border border-ink bg-ink px-5 py-2.5 text-sm text-paper disabled:opacity-40"
+          >
+            Create intent
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            onClick={() => setWorldOpen(true)}
+            disabled={!rp || verifying || !Number(d.perDay) || !Number(d.days)}
+            className="mt-6 border border-ink bg-ink px-5 py-2.5 text-sm text-paper disabled:opacity-40"
+          >
+            {verifying ? "Verifying…" : !rp ? "Preparing…" : "Verify with World & create"}
+          </button>
+          <p className="mt-3 text-xs text-muted">
+            Your proof is recorded on the capsule. It is what lets the agent ask you —
+            and only you — to exceed a limit.
+          </p>
+          {rp && (
+            <IDKitRequestWidget
+              open={worldOpen}
+              onOpenChange={setWorldOpen}
+              app_id={APP_ID}
+              action={ACTION}
+              rp_context={rp}
+              allow_legacy_proofs
+              action_description="Create an IntentLink permission"
+              preset={CREDENTIAL()}
+              onSuccess={onVerified}
+            />
+          )}
+        </>
+      )}
     </Shell>
   );
 }
