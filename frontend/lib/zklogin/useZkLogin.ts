@@ -39,6 +39,15 @@ export function useZkLogin(): ZkLoginState {
     setLoading(true);
     setError(null);
     try {
+      // Come back to where the user was. Without this a recipient who signs
+      // in from an intent link lands on the home page and has to find their
+      // way back — the one moment in the flow where they have least idea
+      // what this app is.
+      sessionStorage.setItem(
+        "intentlink.next",
+        window.location.pathname + window.location.search,
+      );
+
       const res = await fetch("/api/epoch");
       if (!res.ok) throw new Error("could not reach the network");
       const { epoch } = (await res.json()) as { epoch: number };
