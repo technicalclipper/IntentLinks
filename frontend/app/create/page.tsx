@@ -15,6 +15,7 @@ import { StaleSessionError } from "@/lib/zklogin/client";
 
 const SUI = 1_000_000_000;
 const DAY_MS = 86_400_000;
+const POOL = process.env.NEXT_PUBLIC_DEMO_POOL_ID ?? "";
 
 const APP_ID = process.env.NEXT_PUBLIC_WORLD_APP_ID as `app_${string}`;
 const ACTION = process.env.NEXT_PUBLIC_WORLD_ACTION_IDENTITY ?? "intentlink-identity";
@@ -23,31 +24,42 @@ const CREDENTIAL =
     process.env.NEXT_PUBLIC_WORLD_CREDENTIAL ?? "human"
   ] ?? proofOfHuman;
 
-/** A stand-in pool id until a real DEX is wired in. Scope is what matters. */
-const POOL = "0x00000000000000000000000000000000000000000000000000000000000900d1";
+const EXAMPLES = [
+  "Sell 0.02 SUI a day for 30 days, max 1% slippage, send the DUSD to bob@gmail.com",
+  "Give my agent 0.5 SUI total, at most 0.05 a day for 10 days, keep the proceeds",
+  "Trade up to 0.02 SUI daily for a month. Buy the dip when the market looks good.",
+];
 
 type Phase = "compose" | "review" | "minting" | "done";
 
-interface Draft {
-  recipient: string;
+interface Clause {
+  text: string;
+  why: string;
+}
+
+interface Compiled {
   goal: string;
-  perDay: string;
-  days: string;
-  slippagePct: string;
+  perDay: number;
+  days: number;
+  maxSlippagePct: number;
   beneficiary: "recipient" | "vault";
+  recipientEmail: string | null;
+  advisory: Clause[];
+  rejected: Clause[];
 }
 
 export default function Create() {
   const { session, signIn } = useZkLogin();
   const [phase, setPhase] = useState<Phase>("compose");
+  const [text, setText] = useState("");
+  const [c, setC] = useState<Compiled | null>(null);
+  const [compiling, setCompiling] = useState(false);
   const [step, setStep] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [link, setLink] = useState<{ name: string; url: string } | null>(null);
 
-  // The issuer proves personhood before minting, and we record the nullifier
-  // on the capsule. Escalation later compares a fresh proof against it, so
-  // the guarantee is "the same human who set this limit", not merely "a
-  // human". Without it recorded here, that check has nothing to compare to.
+  // Recorded on the capsule so escalation can prove it is the *same* human
+  // who set the limit, not merely a human.
   const [issuerNullifier, setIssuerNullifier] = useState<string | null>(null);
   const [rp, setRp] = useState<RpContext | null>(null);
   const [worldOpen, setWorldOpen] = useState(false);
@@ -63,6 +75,26 @@ export default function Create() {
       .then((d) => d.rp_context && setRp(d.rp_context))
       .catch(() => {});
   }, []);
+
+  async function compile() {
+    setCompiling(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/intents/compile", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const out = await res.json();
+      if (!res.ok) throw new Error(out.error ?? "could not read that");
+      setC(out as Compiled);
+      setPhase("review");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setCompiling(false);
+    }
+  }
 
   async function onVerified(proof: IDKitResult) {
     setVerifying(true);
@@ -83,59 +115,44 @@ export default function Create() {
     }
   }
 
-  const [d, setD] = useState<Draft>({
-    recipient: "",
-    goal: "Buy SUI daily",
-    perDay: "0.02",
-    days: "30",
-    slippagePct: "1",
-    beneficiary: "recipient",
-  });
-
-  const perWindow = BigInt(Math.round(Number(d.perDay || 0) * SUI));
-  const windows = BigInt(d.days || 0);
-  const total = perWindow * windows;
-  // The ceiling nothing can lift — generous enough for escalation to be
-  // useful, tight enough to still be a ceiling.
-  const hardCap = perWindow * 5n;
-
   async function mint() {
-    if (!session) return;
+    if (!session || !c) return;
     setError(null);
     setPhase("minting");
+
+    const perWindow = BigInt(Math.round(c.perDay * SUI));
+    const total = perWindow * BigInt(c.days);
+    const hardCap = perWindow * 5n;
 
     try {
       const now = Date.now();
       const policy = {
         version: 1 as const,
-        goal: d.goal,
+        goal: c.goal,
         asset: "SUI",
         perActionCap: perWindow.toString(),
         perWindowCap: perWindow.toString(),
         totalCap: total.toString(),
         hardCap: hardCap.toString(),
         windowMs: String(DAY_MS),
-        maxWindows: d.days,
+        maxWindows: String(c.days),
         allowedPools: [POOL],
-        maxSlippageBps: String(Math.round(Number(d.slippagePct) * 100)),
-        beneficiary: d.beneficiary === "recipient" ? "recipient" : "vault",
+        maxSlippageBps: String(Math.round(c.maxSlippagePct * 100)),
+        beneficiary: c.beneficiary,
         notBefore: "0",
-        expiresAt: String(now + Number(d.days) * DAY_MS),
-        boundTo: d.recipient ? maskEmail(d.recipient) : null,
+        expiresAt: String(now + c.days * DAY_MS),
+        boundTo: c.recipientEmail ? maskEmail(c.recipientEmail) : null,
       };
 
       setStep("hashing the policy");
-      const res = await fetch("/api/intents/policy", {
+      const pres = await fetch("/api/intents/policy", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ policy, recipientEmail: d.recipient || null }),
+        body: JSON.stringify({ policy, recipientEmail: c.recipientEmail }),
       });
-      const { policyHash, salt, boundRecipient, error: pErr } = await res.json();
-      if (!res.ok) throw new Error(pErr ?? "could not prepare the policy");
+      const { policyHash, salt, boundRecipient, error: pErr } = await pres.json();
+      if (!pres.ok) throw new Error(pErr ?? "could not prepare the policy");
 
-      // The issuer genuinely needs coins — they are funding a vault. On
-      // mainnet they would already hold SUI; on testnet a fresh zkLogin
-      // address has none, so top it up. The recipient never needs this.
       setStep("checking your balance");
       const bal = await fetch(`/api/balance?address=${session.address}`).then((r) => r.json());
       if (BigInt(bal.balance ?? 0) < total + BigInt(50_000_000)) {
@@ -151,16 +168,13 @@ export default function Create() {
       }
 
       setStep("funding the vault");
-      const vaultRes = await sendAction(
-        { kind: "createVault", amount: total.toString() },
-        session,
-      );
-      if (!vaultRes.success) throw new Error(vaultRes.abort?.message ?? vaultRes.error ?? "vault failed");
-      const vaultId = createdOfType(vaultRes, "::Vault<");
+      const v = await sendAction({ kind: "createVault", amount: total.toString() }, session);
+      if (!v.success) throw new Error(v.abort?.message ?? v.error ?? "vault failed");
+      const vaultId = createdOfType(v, "::Vault<");
       if (!vaultId) throw new Error("vault was not created");
 
       setStep("writing the limits on-chain");
-      const capRes = await sendAction(
+      const cap = await sendAction(
         {
           kind: "mintCapsule",
           args: {
@@ -175,7 +189,7 @@ export default function Create() {
             maxWindows: policy.maxWindows,
             allowedPools: policy.allowedPools,
             maxSlippageBps: policy.maxSlippageBps,
-            beneficiaryMode: d.beneficiary === "recipient" ? 1 : 0,
+            beneficiaryMode: c.beneficiary === "recipient" ? 1 : 0,
             beneficiaryAddr: null,
             notBefore: policy.notBefore,
             expiresAt: policy.expiresAt,
@@ -185,8 +199,8 @@ export default function Create() {
         },
         session,
       );
-      if (!capRes.success) throw new Error(capRes.abort?.message ?? capRes.error ?? "capsule failed");
-      const capsuleId = createdOfType(capRes, "::Capsule");
+      if (!cap.success) throw new Error(cap.abort?.message ?? cap.error ?? "capsule failed");
+      const capsuleId = createdOfType(cap, "::Capsule");
       if (!capsuleId) throw new Error("capsule was not created");
 
       setStep("publishing the name");
@@ -199,7 +213,7 @@ export default function Create() {
           policy,
           policyHash,
           salt,
-          recipientEmail: d.recipient || null,
+          recipientEmail: c.recipientEmail,
           issuerAddress: session.address,
         }),
       });
@@ -236,18 +250,21 @@ export default function Create() {
         <p className="text-sm text-pass">Intent created</p>
         <p className="val mt-3 text-2xl break-all">{link.name}</p>
         <p className="mt-2 text-sm text-muted">
-          Send this to {d.recipient || "anyone"}. They need no wallet and pay no gas.
+          Send this to {c?.recipientEmail ?? "anyone"}. They need no wallet and pay no gas.
         </p>
         <div className="panel mt-6 p-4">
           <p className="val text-sm break-all">
-            {typeof window !== "undefined" ? window.location.origin : ""}{link.url}
+            {typeof window !== "undefined" ? window.location.origin : ""}
+            {link.url}
           </p>
         </div>
         <div className="mt-6 flex gap-3">
           <a href={link.url} className="border border-ink bg-ink px-4 py-2 text-sm text-paper">
             Open as the recipient
           </a>
-          <a href="/" className="border border-line px-4 py-2 text-sm">Done</a>
+          <a href="/" className="border border-line px-4 py-2 text-sm">
+            Done
+          </a>
         </div>
       </Shell>
     );
@@ -265,118 +282,155 @@ export default function Create() {
     );
   }
 
+  if (phase === "review" && c) {
+    return (
+      <Shell>
+        <button onClick={() => setPhase("compose")} className="text-sm text-muted">
+          ← edit
+        </button>
+
+        <p className="mt-6 text-xs tracking-wide text-muted uppercase">Enforced on-chain</p>
+        <div className="panel mt-3 p-5">
+          <dl className="space-y-1.5 text-sm">
+            <Row k="Action" v={c.goal} />
+            <Row k="Per day" v={`${c.perDay} SUI`} />
+            <Row k="Periods" v={`${c.days} × 24h`} />
+            <Row k="Total" v={`${(c.perDay * c.days).toFixed(4)} SUI`} />
+            <Row k="Max slippage" v={`${c.maxSlippagePct}%`} />
+            <Row k="Pool" v="one approved pool" />
+            <Row
+              k="Proceeds"
+              v={c.beneficiary === "recipient" ? "to the recipient" : "back to you"}
+            />
+            {c.recipientEmail && <Row k="Only for" v={c.recipientEmail} />}
+            <Row k="Hard ceiling" v={`${(c.perDay * 5).toFixed(4)} SUI`} note="never exceeded" />
+          </dl>
+          <p className="mt-4 text-xs text-muted">
+            Every line becomes an <span className="val">assert</span>. The chain refuses
+            anything outside them.
+          </p>
+        </div>
+
+        {c.advisory.length > 0 && (
+          <>
+            <p className="mt-6 text-xs tracking-wide text-pending uppercase">
+              ◇ The agent decides these
+            </p>
+            <div className="panel mt-3 p-5">
+              {c.advisory.map((a, i) => (
+                <div key={i} className={i ? "mt-3" : ""}>
+                  <p className="text-sm">&ldquo;{a.text}&rdquo;</p>
+                  <p className="mt-1 text-xs text-muted">{a.why}</p>
+                </div>
+              ))}
+              <p className="mt-4 text-xs text-muted">
+                Not enforceable on-chain. Your limits above still apply regardless.
+              </p>
+            </div>
+          </>
+        )}
+
+        {c.rejected.length > 0 && (
+          <>
+            <p className="mt-6 text-xs tracking-wide text-block uppercase">✗ Not possible</p>
+            <div className="panel mt-3 p-5">
+              {c.rejected.map((a, i) => (
+                <div key={i} className={i ? "mt-3" : ""}>
+                  <p className="text-sm">&ldquo;{a.text}&rdquo;</p>
+                  <p className="mt-1 text-xs text-muted">{a.why}</p>
+                </div>
+              ))}
+              <p className="mt-4 text-xs text-muted">
+                Left out of the capability rather than quietly ignored.
+              </p>
+            </div>
+          </>
+        )}
+
+        {error && <p className="mt-4 text-sm text-block">{error}</p>}
+
+        {issuerNullifier ? (
+          <>
+            <p className="mt-6 text-sm text-pass">
+              ⛓ Verified — recorded on the capsule, so only you can approve the agent going
+              past these limits.
+            </p>
+            <button
+              onClick={mint}
+              className="mt-4 border border-ink bg-ink px-5 py-2.5 text-sm text-paper"
+            >
+              Create intent
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => setWorldOpen(true)}
+              disabled={!rp || verifying}
+              className="mt-6 border border-ink bg-ink px-5 py-2.5 text-sm text-paper disabled:opacity-40"
+            >
+              {verifying ? "Verifying…" : !rp ? "Preparing…" : "Verify with World & create"}
+            </button>
+            <p className="mt-3 text-xs text-muted">
+              Your proof is recorded on the capsule. It is what lets the agent ask you — and
+              only you — to exceed a limit.
+            </p>
+            {rp && (
+              <IDKitRequestWidget
+                open={worldOpen}
+                onOpenChange={setWorldOpen}
+                app_id={APP_ID}
+                action={ACTION}
+                rp_context={rp}
+                allow_legacy_proofs
+                action_description="Create an IntentLink permission"
+                preset={CREDENTIAL()}
+                onSuccess={onVerified}
+              />
+            )}
+          </>
+        )}
+      </Shell>
+    );
+  }
+
   return (
     <Shell>
       <h1 className="text-3xl tracking-tight">New intent</h1>
+      <p className="mt-2 text-muted">Say what the agent may do.</p>
 
-      <section className="mt-8">
-        <p className="text-sm text-muted">Who is this for?</p>
-        <input
-          value={d.recipient}
-          onChange={(e) => setD({ ...d, recipient: e.target.value })}
-          placeholder="bob@gmail.com"
-          className="val mt-2 w-full border border-line bg-panel px-3 py-2 text-sm"
-        />
-        <p className="mt-1 text-xs text-muted">
-          {d.recipient
-            ? "Only this Google account can open it."
-            : "Leave empty and the first verified human to open it claims it."}
-        </p>
-      </section>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={4}
+        placeholder="Sell 0.02 SUI a day for 30 days, max 1% slippage, send the DUSD to bob@gmail.com"
+        className="mt-6 w-full resize-none border border-line bg-panel px-4 py-3 text-sm leading-relaxed"
+      />
 
-      <section className="mt-6">
-        <p className="text-sm text-muted">What may the agent do?</p>
-        <input
-          value={d.goal}
-          onChange={(e) => setD({ ...d, goal: e.target.value })}
-          className="mt-2 w-full border border-line bg-panel px-3 py-2 text-sm"
-        />
-      </section>
-
-      <section className="mt-6 grid grid-cols-3 gap-3">
-        <Field label="SUI per day" value={d.perDay} onChange={(v) => setD({ ...d, perDay: v })} />
-        <Field label="Days" value={d.days} onChange={(v) => setD({ ...d, days: v })} />
-        <Field label="Max slippage %" value={d.slippagePct} onChange={(v) => setD({ ...d, slippagePct: v })} />
-      </section>
-
-      <section className="mt-6">
-        <p className="text-sm text-muted">Where do the proceeds go?</p>
-        <div className="mt-2 flex gap-3">
-          {(["recipient", "vault"] as const).map((b) => (
-            <button
-              key={b}
-              onClick={() => setD({ ...d, beneficiary: b })}
-              className={`border px-3 py-2 text-sm ${
-                d.beneficiary === b ? "border-ink bg-ink text-paper" : "border-line"
-              }`}
-            >
-              {b === "recipient" ? "To the recipient" : "Back to me"}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <div className="panel mt-8 p-5">
-        <p className="text-xs tracking-wide text-muted uppercase">
-          Enforced on-chain
-        </p>
-        <dl className="mt-3 space-y-1.5 text-sm">
-          <Row k="Per day" v={`${d.perDay} SUI`} />
-          <Row k="Total" v={`${(Number(d.perDay) * Number(d.days)).toFixed(4)} SUI`} />
-          <Row k="Periods" v={`${d.days} × 24h`} />
-          <Row k="Pool" v="Cetus only" />
-          <Row k="Slippage" v={`${d.slippagePct}%`} />
-          <Row k="Hard ceiling" v={`${(Number(d.perDay) * 5).toFixed(4)} SUI`} note="never exceeded" />
-        </dl>
-        <p className="mt-3 text-xs text-muted">
-          Each line becomes an assert. The chain refuses anything outside them.
-        </p>
+      <div className="mt-3 space-y-1.5">
+        {EXAMPLES.map((e) => (
+          <button
+            key={e}
+            onClick={() => setText(e)}
+            className="block text-left text-xs text-muted hover:text-ink"
+          >
+            → {e}
+          </button>
+        ))}
       </div>
 
       {error && <p className="mt-4 text-sm text-block">{error}</p>}
 
-      {issuerNullifier ? (
-        <>
-          <p className="mt-6 text-sm text-pass">
-            ⛓ Verified — recorded on the capsule, so only you can approve the agent
-            going past these limits.
-          </p>
-          <button
-            onClick={mint}
-            disabled={!Number(d.perDay) || !Number(d.days)}
-            className="mt-4 border border-ink bg-ink px-5 py-2.5 text-sm text-paper disabled:opacity-40"
-          >
-            Create intent
-          </button>
-        </>
-      ) : (
-        <>
-          <button
-            onClick={() => setWorldOpen(true)}
-            disabled={!rp || verifying || !Number(d.perDay) || !Number(d.days)}
-            className="mt-6 border border-ink bg-ink px-5 py-2.5 text-sm text-paper disabled:opacity-40"
-          >
-            {verifying ? "Verifying…" : !rp ? "Preparing…" : "Verify with World & create"}
-          </button>
-          <p className="mt-3 text-xs text-muted">
-            Your proof is recorded on the capsule. It is what lets the agent ask you —
-            and only you — to exceed a limit.
-          </p>
-          {rp && (
-            <IDKitRequestWidget
-              open={worldOpen}
-              onOpenChange={setWorldOpen}
-              app_id={APP_ID}
-              action={ACTION}
-              rp_context={rp}
-              allow_legacy_proofs
-              action_description="Create an IntentLink permission"
-              preset={CREDENTIAL()}
-              onSuccess={onVerified}
-            />
-          )}
-        </>
-      )}
+      <button
+        onClick={compile}
+        disabled={!text.trim() || compiling}
+        className="mt-6 border border-ink bg-ink px-5 py-2.5 text-sm text-paper disabled:opacity-40"
+      >
+        {compiling ? "Reading…" : "Compile"}
+      </button>
+      <p className="mt-3 text-xs text-muted">
+        You will see exactly which parts become on-chain limits before anything is created.
+      </p>
     </Shell>
   );
 }
@@ -385,24 +439,12 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <main className="min-h-dvh p-6">
       <div className="mx-auto max-w-xl pt-10">
-        <a href="/" className="val text-sm text-accent">[→]</a>
+        <a href="/" className="val text-sm text-accent">
+          [→]
+        </a>
         <div className="mt-6">{children}</div>
       </div>
     </main>
-  );
-}
-
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (
-    <label className="block">
-      <span className="text-xs text-muted">{label}</span>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        inputMode="decimal"
-        className="val mt-1 w-full border border-line bg-panel px-3 py-2 text-sm"
-      />
-    </label>
   );
 }
 
