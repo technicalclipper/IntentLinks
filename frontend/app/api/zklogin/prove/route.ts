@@ -1,0 +1,49 @@
+import {
+  requestProof,
+  verifyGoogleIdToken,
+  zkLoginAddress,
+} from "@/lib/zklogin/server";
+
+/**
+ * Turn a Google id_token into a Sui address and a zk proof.
+ *
+ * The salt never leaves this process, so the browser cannot derive its own
+ * address and we cannot sign on the user's behalf — the ephemeral key that
+ * actually signs stays in their tab.
+ */
+export async function POST(request: Request) {
+  try {
+    const body = (await request.json()) as {
+      idToken?: string;
+      extendedEphemeralPublicKey?: string;
+      maxEpoch?: number;
+      jwtRandomness?: string;
+    };
+
+    const { idToken, extendedEphemeralPublicKey, maxEpoch, jwtRandomness } = body;
+    if (!idToken || !extendedEphemeralPublicKey || !maxEpoch || !jwtRandomness) {
+      return Response.json({ error: "missing fields" }, { status: 400 });
+    }
+
+    // Verify before trusting anything in it — signature, issuer, audience,
+    // expiry. Otherwise "sign in with Google" is "post any JSON you like".
+    const claims = await verifyGoogleIdToken(idToken);
+
+    const address = zkLoginAddress(claims);
+    const proof = await requestProof({
+      idToken,
+      extendedEphemeralPublicKey,
+      maxEpoch,
+      jwtRandomness,
+    });
+
+    return Response.json({
+      address,
+      proof,
+      email: claims.email ?? null,
+      emailVerified: claims.email_verified ?? false,
+    });
+  } catch (e) {
+    return Response.json({ error: (e as Error).message }, { status: 400 });
+  }
+}

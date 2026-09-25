@@ -1,26 +1,56 @@
 @import "tailwindcss";
 
+/*
+  The interface should read as instrumentation, not as an app that helps you.
+  Monochrome until something passes, blocks, or waits — colour only ever
+  means state, which is what makes a refused transaction land.
+*/
+@theme {
+  --color-ink: #0a0a0b;
+  --color-paper: #fafaf8;
+  --color-muted: #6b6b70;
+  --color-line: #e4e4e1;
+  --color-panel: #ffffff;
+
+  /* state, and nothing else */
+  --color-pass: #00875a;
+  --color-block: #d93025;
+  --color-pending: #b8860b;
+  --color-accent: #f0a830;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  --radius-none: 0px;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+  Every number on screen is a constraint, so values are monospaced and prose
+  is not. This single rule does most of the design work.
+*/
+.val {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Hard edges. Limits should look like limits. */
+.panel {
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
+}
+
+.rule {
+  border-color: var(--color-line);
 }

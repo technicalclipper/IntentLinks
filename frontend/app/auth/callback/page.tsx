@@ -1,0 +1,111 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { extendedPublicKey, loadEphemeral, saveSession } from "@/lib/zklogin/client";
+
+type Phase = "working" | "done" | "failed";
+
+/**
+ * Google returns the id_token in the URL *fragment*, which never reaches the
+ * server — so this has to run in the browser. It hands the token to our
+ * backend for proving (the salt lives there) and keeps the ephemeral key
+ * here, which is what makes the address genuinely the user's.
+ */
+export default function AuthCallback() {
+  const [phase, setPhase] = useState<Phase>("working");
+  const [detail, setDetail] = useState("verifying with Google");
+  const [address, setAddress] = useState<string | null>(null);
+  const ran = useRef(false);
+
+  useEffect(() => {
+    if (ran.current) return;
+    ran.current = true;
+
+    (async () => {
+      try {
+        const params = new URLSearchParams(window.location.hash.slice(1));
+        const idToken = params.get("id_token");
+        if (!idToken) throw new Error("Google did not return a token");
+
+        const ephemeral = loadEphemeral();
+        if (!ephemeral) throw new Error("this sign-in was started in another tab");
+
+        setDetail("generating your proof");
+        const res = await fetch("/api/zklogin/prove", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            idToken,
+            extendedEphemeralPublicKey: extendedPublicKey(ephemeral),
+            maxEpoch: ephemeral.maxEpoch,
+            jwtRandomness: ephemeral.randomness,
+          }),
+        });
+
+        const data = (await res.json()) as {
+          address?: string;
+          proof?: unknown;
+          email?: string;
+          error?: string;
+        };
+        if (!res.ok || !data.address) throw new Error(data.error ?? "proving failed");
+
+        saveSession({
+          ...ephemeral,
+          address: data.address,
+          email: data.email ?? "",
+          proof: data.proof,
+        });
+
+        setAddress(data.address);
+        setPhase("done");
+
+        // Drop the token out of the address bar before going anywhere.
+        window.history.replaceState({}, "", "/auth/callback");
+        const next = sessionStorage.getItem("intentlink.next") ?? "/";
+        sessionStorage.removeItem("intentlink.next");
+        setTimeout(() => (window.location.href = next), 900);
+      } catch (e) {
+        setDetail((e as Error).message);
+        setPhase("failed");
+      }
+    })();
+  }, []);
+
+  return (
+    <main className="min-h-dvh flex items-center justify-center p-6">
+      <div className="panel w-full max-w-md p-8">
+        {phase === "working" && (
+          <>
+            <p className="text-sm text-muted">Signing you in</p>
+            <p className="mt-2 text-2xl">{detail}…</p>
+            <p className="mt-6 text-xs text-muted">
+              Proof generation takes a few seconds the first time.
+            </p>
+          </>
+        )}
+
+        {phase === "done" && (
+          <>
+            <p className="text-sm text-pass">Signed in</p>
+            <p className="mt-2 text-sm text-muted">Your Sui address</p>
+            <p className="val mt-1 text-sm break-all">{address}</p>
+            <p className="mt-6 text-xs text-muted">
+              No wallet, no seed phrase, no gas.
+            </p>
+          </>
+        )}
+
+        {phase === "failed" && (
+          <>
+            <p className="text-sm text-block">Sign-in failed</p>
+            <p className="mt-2 text-sm">{detail}</p>
+            <a href="/" className="mt-6 inline-block text-sm underline">
+              Start again
+            </a>
+          </>
+        )}
+      </div>
+    </main>
+  );
+}
