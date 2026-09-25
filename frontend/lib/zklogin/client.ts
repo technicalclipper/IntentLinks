@@ -40,6 +40,8 @@ export interface ActiveSession extends EphemeralSession {
    * lets us catch it here and re-authenticate instead.
    */
   provedFor: string;
+  /** "demo" signs server-side; "zklogin" signs in this tab. */
+  mode: "demo" | "zklogin";
   address: string;
   email: string;
   proof: unknown;
@@ -60,7 +62,7 @@ export function loadSession(): ActiveSession | null {
   if (!raw) return null;
   try {
     const s = JSON.parse(raw) as ActiveSession;
-    return s.proof ? s : null;
+    return s.mode === "demo" || s.proof ? s : null;
   } catch {
     return null;
   }

@@ -53,6 +53,7 @@ export default function AuthCallback() {
           address?: string;
           proof?: unknown;
           email?: string;
+          mode?: "demo" | "zklogin";
           error?: string;
         };
         if (!res.ok || !data.address) throw new Error(data.error ?? "proving failed");
@@ -60,6 +61,7 @@ export default function AuthCallback() {
         saveSession({
           ...ephemeral,
           provedFor,
+          mode: data.mode ?? "zklogin",
           address: data.address,
           email: data.email ?? "",
           proof: data.proof,

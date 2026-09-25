@@ -36,7 +36,10 @@ export async function sendAction(
   };
   if (!prep.ok || !prepared.bytes) throw new Error(prepared.error ?? "could not prepare");
 
-  const signature = await signAsZkLogin(session, fromBase64(prepared.bytes));
+  const signature =
+    session.mode === "demo"
+      ? await signViaServer(prepared.bytes, session)
+      : await signAsZkLogin(session, fromBase64(prepared.bytes));
 
   const res = await fetch("/api/tx/execute", {
     method: "POST",
@@ -54,4 +57,19 @@ export async function sendAction(
 
 export function createdOfType(r: SentResult, needle: string): string | undefined {
   return r.created.find((c) => c.type.includes(needle))?.objectId;
+}
+
+/**
+ * Demo mode: the server holds a key derived from the Google account and
+ * signs after re-verifying the id_token.
+ */
+async function signViaServer(bytes: string, session: ActiveSession): Promise<string> {
+  const res = await fetch("/api/tx/sign", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ bytes, idToken: session.idToken }),
+  });
+  const out = (await res.json()) as { signature?: string; error?: string };
+  if (!res.ok || !out.signature) throw new Error(out.error ?? "could not sign");
+  return out.signature;
 }

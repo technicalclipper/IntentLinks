@@ -1,3 +1,4 @@
+import { authMode, demoAddress } from "@/lib/auth/demo";
 import {
   requestProof,
   verifyGoogleIdToken,
@@ -28,6 +29,18 @@ export async function POST(request: Request) {
     // Verify before trusting anything in it — signature, issuer, audience,
     // expiry. Otherwise "sign in with Google" is "post any JSON you like".
     const claims = await verifyGoogleIdToken(idToken);
+
+    // Demo mode needs no proof, which also makes sign-in instant instead of
+    // a three-second wait on the prover.
+    if (authMode() === "demo") {
+      return Response.json({
+        mode: "demo",
+        address: demoAddress(claims),
+        proof: null,
+        email: claims.email ?? null,
+        emailVerified: claims.email_verified ?? false,
+      });
+    }
 
     const address = zkLoginAddress(claims);
     const proof = await requestProof({
