@@ -103,11 +103,13 @@ export async function reserveGasCoin(budget: bigint) {
   }
 
   reserved.set(coin.objectId, Date.now() + RESERVATION_MS);
-  return {
-    objectId: coin.objectId,
-    version: coin.version,
-    digest: coin.digest,
-  };
+
+  // listCoins is served from a cache and can hand back a version that has
+  // already moved — which fails as "provided version doesn't match" only
+  // once the transaction is submitted, long after the build looked fine.
+  // Read the coin directly so the version we pin is the authoritative one.
+  const fresh = await freshRef(coin.objectId);
+  return fresh ?? { objectId: coin.objectId, version: coin.version, digest: coin.digest };
 }
 
 export function releaseGasCoin(objectId: string): void {
@@ -117,4 +119,18 @@ export function releaseGasCoin(objectId: string): void {
 /** Which coin a built transaction is pinned to, so execute can release it. */
 export function gasCoinOf(tx: { getData(): { gasData: { payment?: { objectId: string }[] } } }) {
   return tx.getData().gasData.payment?.[0]?.objectId;
+}
+
+/** The coin's current version and digest, straight from the node. */
+async function freshRef(objectId: string) {
+  try {
+    const r = (await suiClient().core.getObject({ objectId })) as unknown as {
+      object?: { objectId?: string; version?: string; digest?: string };
+    };
+    const o = r.object;
+    if (!o?.version || !o?.digest) return null;
+    return { objectId, version: o.version, digest: o.digest };
+  } catch {
+    return null;
+  }
 }
