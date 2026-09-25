@@ -767,3 +767,159 @@ fun escalation_still_respects_the_total_cap() {
 // A permit cannot be replayed, and there is deliberately no test for it:
 // `Permit` has no `drop` and no `copy`, and `execute_elevated` takes it by
 // value. A second use does not fail at runtime — it fails to compile.
+
+// ===== Swap execution =============================================
+//
+// The hot potato cannot be tested for "what if you drop it" — a test that
+// acquires an ExecTicket and does not settle simply will not compile. That
+// is the guarantee, and it is stronger than any assertion.
+
+#[test_only]
+use intentlink::demo_pool::{Self, Pool};
+#[test_only]
+use intentlink::dusd::{Self, DUSD};
+#[test_only]
+use sui::coin::TreasuryCap;
+
+#[test_only]
+/// Vault of SUI, a claimed capsule, and a SUI/DUSD pool to trade against.
+fun start_with_pool(): (Scenario, Clock) {
+    let (mut sc, clock) = start_claimed();
+
+    sc.next_tx(ISSUER);
+    dusd::init_for_testing(sc.ctx());
+
+    sc.next_tx(ISSUER);
+    {
+        let mut cap = sc.take_from_sender<TreasuryCap<DUSD>>();
+        let quote = dusd::mint(&mut cap, 1_000_000, sc.ctx());
+        let base = coin::mint_for_testing<SUI>(1_000_000, sc.ctx());
+        demo_pool::create_pool<SUI, DUSD>(base, quote, sc.ctx());
+        sc.return_to_sender(cap);
+    };
+
+    (sc, clock)
+}
+
+#[test]
+fun swap_settles_to_the_beneficiary() {
+    let (mut sc, clock) = start_with_pool();
+
+    sc.next_tx(AGENT);
+    {
+        let mut vault = sc.take_shared<Vault<SUI>>();
+        let mut capsule = sc.take_shared<Capsule>();
+        let mut pool = sc.take_shared<Pool<SUI, DUSD>>();
+
+        let expected = demo_pool::quote_a_for_b(&pool, 10);
+        let (funds, ticket) = il::begin_execute(
+            &mut vault, &mut capsule, &clock,
+            10, expected, PRINCIPAL, pool_ok(), SLIPPAGE_BPS,
+            sc.ctx(),
+        );
+
+        // the swap itself is just another command in the transaction
+        let out = demo_pool::swap_a_for_b(&mut pool, funds, sc.ctx());
+        il::settle(ticket, out, &clock);
+
+        assert!(il::capsule_spent(&capsule) == 10, 0);
+        ts::return_shared(vault);
+        ts::return_shared(capsule);
+        ts::return_shared(pool);
+    };
+
+    sc.next_tx(PRINCIPAL);
+    {
+        // the proceeds are a *different coin type* — a real trade happened
+        let got = sc.take_from_sender<Coin<DUSD>>();
+        assert!(got.value() > 0, 1);
+        sc.return_to_sender(got);
+    };
+    finish(sc, clock);
+}
+
+/// Slippage is checked against the coin that actually came back, not a
+/// number the agent declared.
+#[test]
+#[expected_failure(abort_code = 23, location = intentlink::intentlink)]
+fun settle_refuses_a_worse_fill_than_promised() {
+    let (mut sc, clock) = start_with_pool();
+
+    sc.next_tx(AGENT);
+    {
+        let mut vault = sc.take_shared<Vault<SUI>>();
+        let mut capsule = sc.take_shared<Capsule>();
+        let mut pool = sc.take_shared<Pool<SUI, DUSD>>();
+
+        let honest = demo_pool::quote_a_for_b(&pool, 10);
+        let (funds, ticket) = il::begin_execute(
+            &mut vault, &mut capsule, &clock,
+            10, honest + 1_000, // demand more than the pool can give
+            PRINCIPAL, pool_ok(), SLIPPAGE_BPS, sc.ctx(),
+        );
+
+        let out = demo_pool::swap_a_for_b(&mut pool, funds, sc.ctx());
+        il::settle(ticket, out, &clock);
+
+        ts::return_shared(vault);
+        ts::return_shared(capsule);
+        ts::return_shared(pool);
+    };
+    finish(sc, clock);
+}
+
+/// Every bound still applies on the swap path — it shares check_and_charge
+/// with the transfer path precisely so the two cannot drift.
+#[test]
+#[expected_failure(abort_code = 18, location = intentlink::intentlink)]
+fun swap_path_respects_the_per_action_cap() {
+    let (mut sc, clock) = start_with_pool();
+
+    sc.next_tx(AGENT);
+    {
+        let mut vault = sc.take_shared<Vault<SUI>>();
+        let mut capsule = sc.take_shared<Capsule>();
+        let mut pool = sc.take_shared<Pool<SUI, DUSD>>();
+
+        let (funds, ticket) = il::begin_execute(
+            &mut vault, &mut capsule, &clock,
+            PER_ACTION + 1, 1, PRINCIPAL, pool_ok(), SLIPPAGE_BPS,
+            sc.ctx(),
+        );
+        let out = demo_pool::swap_a_for_b(&mut pool, funds, sc.ctx());
+        il::settle(ticket, out, &clock);
+
+        ts::return_shared(vault);
+        ts::return_shared(capsule);
+        ts::return_shared(pool);
+    };
+    finish(sc, clock);
+}
+
+/// The agent runs a genuine, profitable swap and still cannot keep the output.
+#[test]
+#[expected_failure(abort_code = 24, location = intentlink::intentlink)]
+fun swap_path_cannot_redirect_the_proceeds() {
+    let (mut sc, clock) = start_with_pool();
+
+    sc.next_tx(AGENT);
+    {
+        let mut vault = sc.take_shared<Vault<SUI>>();
+        let mut capsule = sc.take_shared<Capsule>();
+        let mut pool = sc.take_shared<Pool<SUI, DUSD>>();
+
+        let expected = demo_pool::quote_a_for_b(&pool, 10);
+        let (funds, ticket) = il::begin_execute(
+            &mut vault, &mut capsule, &clock,
+            10, expected, AGENT, pool_ok(), SLIPPAGE_BPS,
+            sc.ctx(),
+        );
+        let out = demo_pool::swap_a_for_b(&mut pool, funds, sc.ctx());
+        il::settle(ticket, out, &clock);
+
+        ts::return_shared(vault);
+        ts::return_shared(capsule);
+        ts::return_shared(pool);
+    };
+    finish(sc, clock);
+}

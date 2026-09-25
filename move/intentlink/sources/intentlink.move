@@ -226,6 +226,20 @@ public struct Executed has copy, drop {
     at_ms: u64,
 }
 
+/// A swap that completed. `amount_out` is the coin that actually came back,
+/// not a number anyone declared.
+public struct Swapped has copy, drop {
+    capsule_id: ID,
+    vault_id: ID,
+    amount_in: u64,
+    amount_out: u64,
+    min_out: u64,
+    beneficiary: address,
+    pool_id: ID,
+    elevated: bool,
+    at_ms: u64,
+}
+
 public struct PermitMinted has copy, drop {
     permit_id: ID,
     capsule_id: ID,
@@ -623,6 +637,44 @@ fun execute_inner<T>(
     elevated: Option<u64>,
     ctx: &mut TxContext,
 ) {
+    let is_elevated = elevated.is_some();
+    check_and_charge(
+        vault, capsule, clock, amount, recipient, pool_id, slippage_bps, elevated, ctx,
+    );
+
+    let payment = coin::take(&mut vault.balance, amount, ctx);
+    transfer::public_transfer(payment, recipient);
+
+    event::emit(Executed {
+        capsule_id: object::id(capsule),
+        vault_id: object::id(vault),
+        amount,
+        beneficiary: recipient,
+        pool_id,
+        window_spent: capsule.window_spent,
+        total_spent: capsule.spent,
+        windows_used: capsule.windows_used,
+        elevated: is_elevated,
+        at_ms: clock.timestamp_ms(),
+    });
+}
+
+/// Every bound, plus the accounting. Does not move any coins.
+///
+/// Split out so the direct-transfer path and the swap path cannot drift
+/// apart — a bound enforced in one and forgotten in the other would be
+/// exactly the kind of hole this project exists to not have.
+fun check_and_charge<T>(
+    vault: &mut Vault<T>,
+    capsule: &mut Capsule,
+    clock: &Clock,
+    amount: u64,
+    recipient: address,
+    pool_id: ID,
+    slippage_bps: u64,
+    elevated: Option<u64>,
+    ctx: &mut TxContext,
+) {
     let now = clock.timestamp_ms();
 
     // --- who is asking -------------------------------------------
@@ -672,27 +724,11 @@ fun execute_inner<T>(
     // The agent cannot steal the proceeds of an otherwise-valid action.
     assert!(recipient == resolve_beneficiary(capsule), E_WRONG_BENEFICIARY);
 
-    // --- settle --------------------------------------------------
+    // --- charge --------------------------------------------------
     assert!(vault.balance.value() >= amount, E_INSUFFICIENT_VAULT);
 
     capsule.window_spent = capsule.window_spent + amount;
     capsule.spent = capsule.spent + amount;
-
-    let payment = coin::take(&mut vault.balance, amount, ctx);
-    transfer::public_transfer(payment, recipient);
-
-    event::emit(Executed {
-        capsule_id: object::id(capsule),
-        vault_id: object::id(vault),
-        amount,
-        beneficiary: recipient,
-        pool_id,
-        window_spent: capsule.window_spent,
-        total_spent: capsule.spent,
-        windows_used: capsule.windows_used,
-        elevated: elevated.is_some(),
-        at_ms: now,
-    });
 }
 
 /// Mint a one-shot escalation permit.
@@ -736,6 +772,148 @@ public fun mint_permit(
     // Straight to the agent. `Permit` has no `store`, so only this module
     // can ever move one.
     transfer::transfer(permit, *capsule.holder.borrow());
+}
+
+// ===== Swap execution =============================================
+
+/// A hot potato.
+///
+/// No abilities at all — not `key`, not `store`, not `copy`, not `drop`. It
+/// cannot be saved, cloned, sent anywhere, or quietly discarded. The only
+/// way a transaction holding one can end is by calling `settle`.
+///
+/// That is what lets us hand real funds to an arbitrary DEX without trusting
+/// it or the agent: the coin leaves the vault and the ticket goes with it,
+/// and the transaction is structurally incapable of finishing unless the
+/// proceeds come back and land on the beneficiary.
+///
+/// We deliberately do not import a DEX. The swap happens between these two
+/// calls in the PTB, so any venue works and we are coupled to none.
+public struct ExecTicket {
+    capsule_id: ID,
+    vault_id: ID,
+    amount_in: u64,
+    /// The agent's commitment. `settle` refuses a worse fill than this.
+    min_out: u64,
+    beneficiary: address,
+    pool_id: ID,
+    elevated: bool,
+}
+
+/// Take funds out under the capsule's bounds, to be swapped and settled.
+///
+/// Every check from `execute` runs here. The difference is that the coin is
+/// handed back to the caller instead of transferred, and the ticket makes
+/// finishing the job mandatory.
+public fun begin_execute<T>(
+    vault: &mut Vault<T>,
+    capsule: &mut Capsule,
+    clock: &Clock,
+    amount: u64,
+    min_out: u64,
+    recipient: address,
+    pool_id: ID,
+    slippage_bps: u64,
+    ctx: &mut TxContext,
+): (Coin<T>, ExecTicket) {
+    check_and_charge(vault, capsule, clock, amount, recipient, pool_id, slippage_bps, option::none(), ctx);
+
+    let funds = coin::take(&mut vault.balance, amount, ctx);
+    let ticket = ExecTicket {
+        capsule_id: object::id(capsule),
+        vault_id: object::id(vault),
+        amount_in: amount,
+        min_out,
+        beneficiary: recipient,
+        pool_id,
+        elevated: false,
+    };
+    (funds, ticket)
+}
+
+/// Same, consuming a one-shot permit so the soft caps do not apply.
+public fun begin_execute_elevated<T>(
+    vault: &mut Vault<T>,
+    capsule: &mut Capsule,
+    permit: Permit,
+    clock: &Clock,
+    amount: u64,
+    min_out: u64,
+    recipient: address,
+    pool_id: ID,
+    slippage_bps: u64,
+    ctx: &mut TxContext,
+): (Coin<T>, ExecTicket) {
+    let Permit { id, capsule_id, max_amount, expires_at, signal_hash } = permit;
+    object::delete(id);
+
+    assert!(capsule_id == object::id(capsule), E_PERMIT_WRONG_CAPSULE);
+    assert!(clock.timestamp_ms() < expires_at, E_PERMIT_EXPIRED);
+    assert!(amount <= max_amount, E_PERMIT_AMOUNT);
+
+    event::emit(PermitConsumed {
+        capsule_id,
+        max_amount,
+        amount,
+        signal_hash,
+        at_ms: clock.timestamp_ms(),
+    });
+
+    check_and_charge(
+        vault, capsule, clock, amount, recipient, pool_id, slippage_bps,
+        option::some(max_amount), ctx,
+    );
+
+    let funds = coin::take(&mut vault.balance, amount, ctx);
+    let ticket = ExecTicket {
+        capsule_id: object::id(capsule),
+        vault_id: object::id(vault),
+        amount_in: amount,
+        min_out,
+        beneficiary: recipient,
+        pool_id,
+        elevated: true,
+    };
+    (funds, ticket)
+}
+
+/// Close the loop.
+///
+/// `O` is whatever the swap produced — a different coin type from what left
+/// the vault, which is the whole point of a trade. Two things are enforced
+/// here that could not be enforced anywhere else:
+///
+///   - the fill is no worse than the agent committed to, checked against the
+///     coin that actually came back rather than a number it declared
+///   - the proceeds go to the beneficiary, so a legitimate swap cannot end
+///     with the agent keeping the output
+public fun settle<O>(ticket: ExecTicket, proceeds: Coin<O>, clock: &Clock) {
+    let ExecTicket {
+        capsule_id,
+        vault_id,
+        amount_in,
+        min_out,
+        beneficiary,
+        pool_id,
+        elevated,
+    } = ticket;
+
+    let out = proceeds.value();
+    assert!(out >= min_out, E_SLIPPAGE);
+
+    transfer::public_transfer(proceeds, beneficiary);
+
+    event::emit(Swapped {
+        capsule_id,
+        vault_id,
+        amount_in,
+        amount_out: out,
+        min_out,
+        beneficiary,
+        pool_id,
+        elevated,
+        at_ms: clock.timestamp_ms(),
+    });
 }
 
 /// Record that the agent declined to act.
