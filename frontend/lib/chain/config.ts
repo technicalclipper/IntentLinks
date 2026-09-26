@@ -53,3 +53,11 @@ export const SkipReason = {
   ESCALATION_DENIED: 6,
   MARKET_CONDITION: 7,
 } as const;
+
+/** The demo quote asset and pool the agent trades against. */
+export const DUSD_TYPE = `${PACKAGE_ID}::dusd::DUSD`;
+export const DEMO_POOL_ID = process.env.NEXT_PUBLIC_DEMO_POOL_ID ?? "";
+
+export function poolTarget(fn: string): `${string}::${string}::${string}` {
+  return `${PACKAGE_ID}::demo_pool::${fn}`;
+}

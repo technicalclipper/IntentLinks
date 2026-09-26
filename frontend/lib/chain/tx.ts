@@ -295,3 +295,68 @@ export function reduceCaps(
 }
 
 export { Transaction };
+
+// ===== Swap =======================================================
+
+import { DUSD_TYPE, poolTarget } from "./config";
+
+export interface SwapArgs {
+  vaultId: string;
+  capsuleId: string;
+  poolId: string;
+  amount: bigint;
+  /** The agent's commitment. settle() refuses a worse fill. */
+  minOut: bigint;
+  recipient: string;
+  slippageBps: bigint;
+  coinType?: string;
+  quoteType?: string;
+  /** Consumes a one-shot escalation permit instead of the soft caps. */
+  permitId?: string;
+}
+
+/**
+ * Spend from the vault, trade, and settle — in one transaction.
+ *
+ * `begin_execute` hands back the coin *and* a hot potato. The PTB can do
+ * whatever it likes with the coin in between, but the ticket has no abilities
+ * and only `settle` can destroy it, so the transaction is structurally
+ * incapable of finishing unless the proceeds land on the beneficiary.
+ *
+ * The swap in the middle is an ordinary Move call. Nothing in the capability
+ * layer knows which venue it is, which is why substituting another one is a
+ * change to this line and nothing else.
+ */
+export function executeSwap(tx: Transaction, a: SwapArgs) {
+  const begin = a.permitId ? "begin_execute_elevated" : "begin_execute";
+
+  const args = [
+    tx.object(a.vaultId),
+    tx.object(a.capsuleId),
+    ...(a.permitId ? [tx.object(a.permitId)] : []),
+    tx.object(CLOCK_ID),
+    tx.pure.u64(a.amount),
+    tx.pure.u64(a.minOut),
+    tx.pure.address(a.recipient),
+    tx.pure.id(a.poolId),
+    tx.pure.u64(a.slippageBps),
+  ];
+
+  const [funds, ticket] = tx.moveCall({
+    target: target(begin),
+    typeArguments: [a.coinType ?? SUI_COIN],
+    arguments: args,
+  });
+
+  const proceeds = tx.moveCall({
+    target: poolTarget("swap_a_for_b"),
+    typeArguments: [a.coinType ?? SUI_COIN, a.quoteType ?? DUSD_TYPE],
+    arguments: [tx.object(a.poolId), funds],
+  });
+
+  return tx.moveCall({
+    target: target("settle"),
+    typeArguments: [a.quoteType ?? DUSD_TYPE],
+    arguments: [ticket, proceeds, tx.object(CLOCK_ID)],
+  });
+}
