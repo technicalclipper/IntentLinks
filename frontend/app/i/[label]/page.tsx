@@ -49,8 +49,24 @@ interface Intent {
     boundTo: string | null;
     expiresAt: string;
   };
-  chain: { holder: string | null; revoked: boolean; expiresAt: string };
-  status: { phase: string; endedBecause: string | null };
+  chain: {
+    holder: string | null;
+    revoked: boolean;
+    expiresAt: string;
+    vaultBalance: string;
+    spent: string;
+    windowSpent: string;
+    windowsUsed: string;
+    perWindowCap: string;
+    totalCap: string;
+    maxWindows: string;
+  };
+  status: {
+    phase: string;
+    endedBecause: string | null;
+    windowRemaining: string;
+    totalRemaining: string;
+  };
   verification: { hashesAgree: boolean; fieldsAgree: boolean };
 }
 
@@ -82,10 +98,17 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
   }, []);
 
   useEffect(() => {
-    fetch(`/api/intents/${label}`)
-      .then((r) => r.json())
-      .then((d) => (d.error ? setError(d.error) : setIntent(d)))
-      .catch((e) => setError(String(e)));
+    const load = () =>
+      fetch(`/api/intents/${label}`)
+        .then((r) => r.json())
+        .then((d) => (d.error ? setError(d.error) : setIntent(d)))
+        .catch((e) => setError(String(e)));
+
+    load();
+    // The agent spends while this page is open, so the balance should move
+    // without anyone reaching for refresh.
+    const t = setInterval(load, 6000);
+    return () => clearInterval(t);
   }, [label, claimed]);
 
   async function redeem(proof: IDKitResult) {
@@ -161,6 +184,54 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
           <Line>Anything after the sender revokes</Line>
         </ul>
       </div>
+
+      {/* What the sender put in, and what is left of it. The recipient is
+          the one bearing the consequence of it running out, so it should not
+          take a block explorer to find out. */}
+      {live && (
+        <div className="panel mt-3 p-5">
+          <p className="text-xs tracking-widest text-muted uppercase">Funds</p>
+
+          <div className="mt-4 grid grid-cols-3 gap-4">
+            <Figure k="Left in the vault" v={sui(intent.chain.vaultBalance)} unit="SUI" />
+            <Figure k="Spent so far" v={sui(intent.chain.spent)} unit="SUI" />
+            <Figure
+              k="Available today"
+              v={sui(intent.status.windowRemaining)}
+              unit="SUI"
+              accent
+            />
+          </div>
+
+          <div className="mt-5">
+            <div className="h-1.5 w-full bg-line">
+              <div
+                className="h-full bg-pass transition-[width] duration-500"
+                style={{
+                  width: `${Math.min(
+                    100,
+                    (Number(intent.chain.spent) / Math.max(1, Number(intent.chain.totalCap))) * 100,
+                  )}%`,
+                }}
+              />
+            </div>
+            <div className="mt-2 flex justify-between text-xs text-muted">
+              <span>
+                period <span className="val">{intent.chain.windowsUsed || "0"}</span> of{" "}
+                <span className="val">{intent.chain.maxWindows}</span>
+              </span>
+              <span className="val">
+                {sui(intent.chain.spent)} / {sui(intent.chain.totalCap)} SUI
+              </span>
+            </div>
+          </div>
+
+          <p className="mt-4 text-xs leading-relaxed text-muted">
+            The sender funded this and can revoke at any moment — anything unspent
+            returns to them in the same transaction.
+          </p>
+        </div>
+      )}
 
       <div className="panel mt-3 p-4">
         <p className="text-xs text-muted">
@@ -255,6 +326,26 @@ function Line({ ok, children }: { ok?: boolean; children: React.ReactNode }) {
       <span className={ok ? "text-pass" : "text-block"}>{ok ? "✓" : "✗"}</span>
       <span className={ok ? "" : "text-muted"}>{children}</span>
     </li>
+  );
+}
+
+function Figure({
+  k,
+  v,
+  unit,
+  accent,
+}: {
+  k: string;
+  v: string;
+  unit: string;
+  accent?: boolean;
+}) {
+  return (
+    <div>
+      <p className="text-xs text-muted">{k}</p>
+      <p className={`figure mt-1 text-2xl ${accent ? "text-accent" : ""}`}>{v}</p>
+      <p className="text-xs text-muted">{unit}</p>
+    </div>
   );
 }
 
