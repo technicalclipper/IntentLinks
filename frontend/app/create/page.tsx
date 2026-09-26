@@ -18,7 +18,13 @@ const DAY_MS = 86_400_000;
 const POOL = process.env.NEXT_PUBLIC_DEMO_POOL_ID ?? "";
 
 const APP_ID = process.env.NEXT_PUBLIC_WORLD_APP_ID as `app_${string}`;
-const ACTION = process.env.NEXT_PUBLIC_WORLD_ACTION_IDENTITY ?? "intentlink-identity";
+// A separate action from redemption. Nullifiers are per-action, and one
+// person playing both issuer and recipient in a demo would otherwise be told
+// they have already verified.
+const ACTION =
+  process.env.NEXT_PUBLIC_WORLD_ACTION_ISSUE ??
+  process.env.NEXT_PUBLIC_WORLD_ACTION_IDENTITY ??
+  "intentlink-issue";
 const CREDENTIAL =
   ({ device: deviceLegacy, orb: orbLegacy, human: proofOfHuman } as const)[
     process.env.NEXT_PUBLIC_WORLD_CREDENTIAL ?? "human"
