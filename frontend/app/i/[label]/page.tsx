@@ -265,9 +265,14 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
       ) : claimed || live ? (
         <div className="mt-6">
           <p className="text-sm text-pass">Redeemed. The agent is live.</p>
-          <a href={`/i/${label}/console`} className="mt-4 inline-block border border-ink bg-ink px-4 py-2 text-sm text-paper">
-            Watch it work
-          </a>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <a href={`/i/${label}/console`} className="border border-ink bg-ink px-4 py-2 text-sm text-paper">
+              Watch it work
+            </a>
+            <a href="/mine" className="border border-line px-4 py-2 text-sm">
+              Your intents
+            </a>
+          </div>
         </div>
       ) : rejected ? (
         <div className="panel mt-6 border-block p-5">

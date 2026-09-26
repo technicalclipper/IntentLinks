@@ -85,6 +85,9 @@ export default function Home() {
                 >
                   Create an intent
                 </a>
+                <a href="/mine" className="border border-line px-5 py-2.5 text-sm">
+                  Your intents
+                </a>
                 <button onClick={signOut} className="border border-line px-5 py-2.5 text-sm">
                   Sign out
                 </button>
