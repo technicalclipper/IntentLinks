@@ -52,6 +52,10 @@ export async function GET(
         revoked: capsule.revoked || vault.revoked,
         surrendered: capsule.surrendered,
         paused: capsule.issuerPaused || capsule.principalPaused,
+        // Split out, because the recipient's toggle must reflect *their*
+        // pause and not the sender's — the chain needs both false to run.
+        issuerPaused: capsule.issuerPaused,
+        principalPaused: capsule.principalPaused,
         beneficiaryMode: capsule.beneficiaryMode,
       },
       status: {

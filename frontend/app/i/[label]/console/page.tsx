@@ -1,8 +1,27 @@
 "use client";
 
-import { use, useCallback, useRef, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import { History } from "@/components/History";
-import { Badge, Copy, Shell } from "@/components/ui";
+import { Badge, Copy, Meter, Shell, Stat, phaseTone } from "@/components/ui";
+import { sendAction } from "@/lib/tx-client";
+import { useZkLogin } from "@/lib/zklogin/useZkLogin";
+
+const SUI = 1_000_000_000;
+const sui = (raw?: string) =>
+  raw === undefined ? "—" : (Number(raw) / SUI).toLocaleString(undefined, { maximumFractionDigits: 4 });
+
+interface Live {
+  capsuleId: string;
+  chain: {
+    holder: string | null;
+    principal: string | null;
+    spent: string;
+    totalCap: string;
+    vaultBalance: string;
+    principalPaused: boolean;
+  };
+  status: { phase: string; endedBecause: string | null; windowRemaining: string };
+}
 
 interface Event {
   kind: "propose" | "engine" | "executed" | "blocked" | "skipped" | "info";
@@ -26,9 +45,52 @@ interface Event {
  */
 export default function Console({ params }: { params: Promise<{ label: string }> }) {
   const { label } = use(params);
+  const { session } = useZkLogin();
   const [events, setEvents] = useState<Event[]>([]);
   const [running, setRunning] = useState(false);
+  const [live, setLive] = useState<Live | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+
+  const loadLive = useCallback(() => {
+    fetch(`/api/intents/${label}`)
+      .then((r) => r.json())
+      .then((d) => (d.error ? null : setLive(d)))
+      .catch(() => {});
+  }, [label]);
+
+  useEffect(() => {
+    loadLive();
+    const t = setInterval(loadLive, 8000);
+    return () => clearInterval(t);
+  }, [loadLive]);
+
+  /**
+   * The recipient's own controls, signed by them.
+   *
+   * They are not "revoke" — the funds were never theirs to reclaim. Pause
+   * stops the agent now and is reversible; handing back ends their
+   * authority for good and returns the remainder to the sender. Both
+   * assert the sender is the principal, so this is their power and not
+   * ours to grant.
+   */
+  async function control(action: unknown, verb: string) {
+    if (!session) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const out = await sendAction(action, session);
+      if (out.abort) throw new Error(out.abort.message);
+      if (!out.success) throw new Error(out.error ?? `could not ${verb}`);
+      setNote(verb);
+      loadLive();
+    } catch (e) {
+      setNote((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const run = useCallback(() => {
     setEvents([]);
@@ -80,30 +142,129 @@ export default function Console({ params }: { params: Promise<{ label: string }>
         </a>
       }
     >
-      <span className="badge bg-sun">live · agent vs chain</span>
+      {(() => {
+        const phase = live?.status.phase;
+        const ended = phase === "ended";
+        const paused = phase === "paused";
+        // The controls belong to whoever the chain says the principal is.
+        const mine = Boolean(
+          session?.address &&
+            live?.chain.principal &&
+            live.chain.principal.toLowerCase() === session.address.toLowerCase(),
+        );
 
-      <h1 className="mt-4 text-4xl leading-[0.95] font-bold tracking-tight sm:text-5xl">
-        Watch it
-        <br />
-        <span className="marker text-block">get refused.</span>
-      </h1>
-      <p className="mt-5 max-w-md leading-relaxed text-muted">
-        The agent proposes; the chain decides. Nothing below depends on the agent
-        behaving itself.
-      </p>
-      <p className="mt-2 max-w-md text-xs leading-relaxed text-muted">
-        This button plays one scripted run so you can watch it. The real agent is
-        the keeper, which acts on its own schedule whether or not anyone has this
-        page open — everything it has ever done is in the history below.
-      </p>
+        return (
+          <>
+            <Badge tone={phaseTone(phase)}>
+              {ended ? live?.status.endedBecause : paused ? "paused" : phase === "active" ? "agent running" : "not yet claimed"}
+            </Badge>
 
-      <button onClick={run} disabled={running} className="btn btn-primary mt-7 w-full py-3.5">
-        {running ? "Running…" : events.length ? "Run again ↻" : "Run the agent →"}
-      </button>
+            <h1 className="mt-4 text-4xl leading-[0.95] font-bold tracking-tight sm:text-5xl">
+              {ended ? (
+                <>
+                  It has
+                  <br />
+                  <span className="marker text-block">stopped.</span>
+                </>
+              ) : (
+                <>
+                  Your agent is
+                  <br />
+                  <span className="marker text-sui-deep">working.</span>
+                </>
+              )}
+            </h1>
 
-      {/* Driving it by hand, for when a judge asks "what if it tries X". */}
-      <p className="mt-8 text-xs tracking-widest text-muted uppercase">Or trigger one</p>
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <p className="mt-5 max-w-md leading-relaxed text-muted">
+              It acts on its own schedule, whether or not this page is open. The
+              agent proposes; the chain decides — nothing below depends on it
+              behaving itself.
+            </p>
+
+            {/* The numbers this person actually bears the consequence of. */}
+            {live && (
+              <div className="panel mt-6 p-5">
+                <div className="grid grid-cols-3 gap-4">
+                  <Stat k="Left in the vault" v={sui(live.chain.vaultBalance)} unit="SUI" />
+                  <Stat k="Spent so far" v={sui(live.chain.spent)} unit="SUI" />
+                  <Stat k="Available today" v={sui(live.status.windowRemaining)} unit="SUI" tone="sui" />
+                </div>
+                <div className="mt-4">
+                  <Meter
+                    value={Number(live.chain.spent)}
+                    max={Number(live.chain.totalCap)}
+                    tone={ended ? "block" : "pass"}
+                  />
+                </div>
+
+                {/* Stopping it is the recipient's power, not a demo button. */}
+                <div className="mt-5 flex flex-wrap items-center gap-2">
+                  {!session ? (
+                    <p className="text-xs text-muted">Sign in to pause or hand this back.</p>
+                  ) : !mine ? (
+                    <p className="text-xs text-muted">
+                      Claimed by{" "}
+                      <span className="val">{live.chain.principal?.slice(0, 12)}…</span> — only
+                      that address can pause or hand it back.
+                    </p>
+                  ) : (
+                    <>
+                      <button
+                        className="btn btn-sm"
+                        disabled={busy || ended}
+                        onClick={() =>
+                          control(
+                            {
+                              kind: "principalPause",
+                              capsuleId: live.capsuleId,
+                              paused: !live.chain.principalPaused,
+                            },
+                            live.chain.principalPaused ? "resumed" : "paused",
+                          )
+                        }
+                      >
+                        {live.chain.principalPaused ? "Resume" : "Pause the agent"}
+                      </button>
+                      <button
+                        className="btn btn-sm btn-danger"
+                        disabled={busy || ended}
+                        onClick={() =>
+                          control({ kind: "surrender", capsuleId: live.capsuleId }, "handed back")
+                        }
+                      >
+                        Hand it back
+                      </button>
+                    </>
+                  )}
+                  <a href="/mine" className="ml-auto text-xs font-semibold text-muted hover:text-sui-deep">
+                    all your intents →
+                  </a>
+                </div>
+
+                {note && <p className="mt-3 text-xs font-semibold text-sui-deep">{note}</p>}
+              </div>
+            )}
+          </>
+        );
+      })()}
+
+      {/*
+        Demo instruments, not the product. Driving the agent by hand is for
+        answering "what if it tries X" in two seconds instead of waiting for
+        a budget window — which is why it is folded away rather than being
+        the first thing a recipient sees on a page about their own money.
+      */}
+      <details className="mt-8">
+        <summary className="val cursor-pointer list-none text-xs tracking-widest text-muted uppercase hover:text-sui-deep">
+          ▸ drive it by hand
+        </summary>
+
+        <button onClick={run} disabled={running} className="btn btn-primary mt-4 w-full py-3.5">
+          {running ? "Running…" : events.length ? "Replay the scripted run ↻" : "Play a scripted run →"}
+        </button>
+
+        <p className="mt-4 text-xs tracking-widest text-muted uppercase">Or trigger one</p>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {(
           [
             ["within", "Within the limit", "pass"],
@@ -130,7 +291,8 @@ export default function Console({ params }: { params: Promise<{ label: string }>
             {labelText}
           </button>
         ))}
-      </div>
+        </div>
+      </details>
 
       {/*
         The live feed is this run and nothing else — it lives in component
