@@ -160,7 +160,21 @@ export default function MinePage() {
 
   const issued = data?.issued;
   const received = data?.received;
-  const live = issued?.filter((r) => r.phase === "active").length ?? 0;
+
+  /*
+   * Count both sides, and count each capability once.
+   *
+   * This used to total the issued list alone, so a recipient — who may
+   * hold several live authorities and have issued nothing — was told
+   * "0 live · 0 issued" on the very page listing them. True of the issued
+   * side, useless as a summary.
+   *
+   * Deduplicating by label matters too: issuing a link to yourself puts
+   * the same capability in both lists, and summing them would report two.
+   */
+  const everything = [...(issued ?? []), ...(received ?? [])];
+  const unique = new Map(everything.map((r) => [r.label, r]));
+  const live = [...unique.values()].filter((r) => r.phase === "active").length;
 
   return (
     <Shell
@@ -185,10 +199,14 @@ export default function MinePage() {
             <Mono value={data?.address ?? session.address} chars={8} label="address" />
           </div>
         </div>
-        {issued && (
-          <Badge tone={live > 0 ? "pass" : "idle"}>
-            {live} live · {issued.length} issued
-          </Badge>
+        {data && (
+          <div className="flex flex-wrap gap-2">
+            <Badge tone={live > 0 ? "pass" : "idle"}>{live} live</Badge>
+            {/* Each side only when there is one, so the badges describe
+                this person rather than reciting a schema at them. */}
+            {issued!.length > 0 && <Badge tone="idle">{issued!.length} issued</Badge>}
+            {received!.length > 0 && <Badge tone="idle">{received!.length} held</Badge>}
+          </div>
         )}
       </div>
 
