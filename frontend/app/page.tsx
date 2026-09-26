@@ -139,7 +139,7 @@ export default function Home() {
         <div className="mt-12 grid gap-4 sm:grid-cols-3">
           <Pillar
             k="Sui"
-            v="Fifteen asserts stand between the agent and the funds. A hot potato makes settling to the right address structurally unavoidable."
+            v="Nineteen asserts stand between the agent and the funds on every spend. A hot potato makes settling to the right address structurally unavoidable."
           />
           <Pillar
             k="ENS"

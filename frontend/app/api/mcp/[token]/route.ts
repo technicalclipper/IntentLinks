@@ -29,7 +29,7 @@ export const dynamic = "force-dynamic";
  * ignores it loses nothing.
  *
  * Underneath, `execute` builds the same transaction our own agent builds
- * and meets the same fifteen asserts. An agent that ignores every
+ * and meets the same nineteen asserts. An agent that ignores every
  * description and asks for ten times the cap gets E_OVER_WINDOW_CAP and
  * moves no coin. That is the guarantee, and it does not depend on the
  * agent having read anything.
