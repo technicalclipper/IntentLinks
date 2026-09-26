@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useCallback, useRef, useState } from "react";
+import { History } from "@/components/History";
 import { Badge, Copy, Shell } from "@/components/ui";
 
 interface Event {
@@ -90,6 +91,11 @@ export default function Console({ params }: { params: Promise<{ label: string }>
         The agent proposes; the chain decides. Nothing below depends on the agent
         behaving itself.
       </p>
+      <p className="mt-2 max-w-md text-xs leading-relaxed text-muted">
+        This button plays one scripted run so you can watch it. The real agent is
+        the keeper, which acts on its own schedule whether or not anyone has this
+        page open — everything it has ever done is in the history below.
+      </p>
 
       <button onClick={run} disabled={running} className="btn btn-primary mt-7 w-full py-3.5">
         {running ? "Running…" : events.length ? "Run again ↻" : "Run the agent →"}
@@ -125,6 +131,32 @@ export default function Console({ params }: { params: Promise<{ label: string }>
           </button>
         ))}
       </div>
+
+      {/*
+        The live feed is this run and nothing else — it lives in component
+        state, so leaving the page and coming back used to show an empty
+        console and a "Run the agent" button, as though the agent had never
+        done anything. It had; the record was just somewhere this page was
+        not looking. What happened before now comes from the chain.
+      */}
+      {events.length === 0 && (
+        <div className="panel mt-8 overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-ink bg-sky px-5 py-3">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="val text-xs font-semibold">{label}</span>
+              <Copy value={label} label="label" />
+            </span>
+            <Badge tone="idle">what has happened so far</Badge>
+          </div>
+          <div className="px-5 py-2">
+            <History label={label} />
+          </div>
+          <p className="border-t-2 border-ink bg-paper px-5 py-3 text-xs text-muted">
+            Read from Sui, so it survives a refresh, this laptop, and us. Run the
+            agent above to watch the next decisions happen live.
+          </p>
+        </div>
+      )}
 
       {events.length > 0 && (
         <div className="panel mt-8 overflow-hidden">
