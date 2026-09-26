@@ -1,5 +1,5 @@
 import { agentAddress } from "@/lib/chain/client";
-import { DEMO_POOL_ID } from "@/lib/chain/config";
+import { DEMO_POOL_ID, RIVAL_POOL_ID } from "@/lib/chain/config";
 import { readCapsule } from "@/lib/chain/read";
 import { attempt, beneficiaryOf, poolQuote, skip, type AgentEvent } from "@/lib/agent";
 import { getIntent } from "@/lib/store";
@@ -77,7 +77,7 @@ export async function GET(
           {
             ...base,
             amount: portion,
-            poolId: "0x0000000000000000000000000000000000000000000000000000000000000bad",
+            poolId: RIVAL_POOL_ID,
           },
           { label: "route through another pool" },
         )) {

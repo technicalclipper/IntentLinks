@@ -58,6 +58,15 @@ export const SkipReason = {
 export const DUSD_TYPE = `${PACKAGE_ID}::dusd::DUSD`;
 export const DEMO_POOL_ID = process.env.NEXT_PUBLIC_DEMO_POOL_ID ?? "";
 
+/**
+ * A second, real pool that no capsule approves.
+ *
+ * Must be a genuine Pool object: a made-up id fails while the transaction is
+ * still being built, which is a different thing from the capsule refusing it
+ * and reads as a crash rather than a guarantee.
+ */
+export const RIVAL_POOL_ID = process.env.NEXT_PUBLIC_RIVAL_POOL_ID ?? "";
+
 export function poolTarget(fn: string): `${string}::${string}::${string}` {
   return `${PACKAGE_ID}::demo_pool::${fn}`;
 }

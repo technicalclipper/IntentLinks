@@ -43,6 +43,29 @@ export default function Console({ params }: { params: Promise<{ label: string }>
     };
   }, [label]);
 
+  const step = useCallback(
+    async (action: string) => {
+      setRunning(true);
+      try {
+        const res = await fetch(`/api/agent/${label}/step`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action }),
+        });
+        const out = await res.json();
+        if (out.error) {
+          setEvents((p) => [...p, { kind: "info", text: out.error }]);
+        } else {
+          setEvents((p) => [...p, ...(out.events as Event[])]);
+        }
+        requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "smooth" }));
+      } finally {
+        setRunning(false);
+      }
+    },
+    [label],
+  );
+
   const blocked = events.filter((e) => e.kind === "blocked").length;
   const executed = events.filter((e) => e.kind === "executed").length;
 
@@ -72,6 +95,29 @@ export default function Console({ params }: { params: Promise<{ label: string }>
         >
           {running ? "Running…" : events.length ? "Run again" : "Run the agent →"}
         </button>
+
+        {/* Driving it by hand, for when a judge asks "what if it tries X". */}
+        <p className="mt-8 text-xs tracking-widest text-muted uppercase">
+          Or trigger one
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {[
+            ["within", "Within the limit"],
+            ["over", "Past the daily limit"],
+            ["wrongPool", "Unapproved pool"],
+            ["keepProceeds", "Keep the proceeds"],
+            ["decline", "Decline to trade"],
+          ].map(([k, labelText]) => (
+            <button
+              key={k}
+              onClick={() => step(k)}
+              disabled={running}
+              className="panel px-3 py-2.5 text-xs transition hover:border-ink disabled:opacity-30"
+            >
+              {labelText}
+            </button>
+          ))}
+        </div>
 
         {events.length > 0 && (
           <div className="panel mt-8">

@@ -144,6 +144,15 @@ export default function Create() {
         boundTo: c.recipientEmail ? maskEmail(c.recipientEmail) : null,
       };
 
+      // A capsule scoped to a pool that does not exist is a capability the
+      // agent can never use — every action refuses with POOL_NOT_SCOPED and
+      // it looks like the product is broken rather than misconfigured.
+      if (!POOL || !POOL.startsWith("0x") || POOL.length < 40) {
+        throw new Error(
+          "No trading pool is configured. Set NEXT_PUBLIC_DEMO_POOL_ID and restart.",
+        );
+      }
+
       setStep("hashing the policy");
       const pres = await fetch("/api/intents/policy", {
         method: "POST",
