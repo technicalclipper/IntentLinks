@@ -114,6 +114,23 @@ export async function POST(request: Request) {
       truncated: listIntents().length > MAX,
     });
   } catch (e) {
-    return Response.json({ error: (e as Error).message }, { status: 400 });
+    const message = (e as Error).message;
+
+    /*
+     * Tell "sign in again" apart from "the chain read failed".
+     *
+     * A Google id_token lasts an hour and this is the first screen that
+     * needs a fresh one merely to *read*, so an expired session is the
+     * ordinary case here rather than an exotic one. Returning it as a plain
+     * 400 left the page saying "Reading the chain…" forever — blaming the
+     * chain for something that was only ever an expired token.
+     */
+    const isAuth = /expired|signature|malformed|unknown key|issuer|different application/i.test(
+      message,
+    );
+    return Response.json(
+      { error: message, code: isAuth ? "auth" : "read" },
+      { status: isAuth ? 401 : 400 },
+    );
   }
 }

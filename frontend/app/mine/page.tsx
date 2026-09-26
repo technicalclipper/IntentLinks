@@ -51,6 +51,13 @@ export default function MinePage() {
   const { session, signIn } = useZkLogin();
   const [data, setData] = useState<Mine | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /*
+   * Distinguishing these matters. A section that says "Reading the chain…"
+   * when the read already failed is claiming to still be working, and the
+   * commonest cause here is not the chain at all — a Google id_token lasts
+   * an hour, and this is the first screen that needs a fresh one to read.
+   */
+  const [phase, setPhase] = useState<"loading" | "ready" | "failed" | "expired">("loading");
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -63,10 +70,19 @@ export default function MinePage() {
         body: JSON.stringify({ idToken: session.idToken }),
       });
       const out = await res.json();
+      if (res.status === 401 || out.code === "auth") {
+        setPhase("expired");
+        return;
+      }
       if (!res.ok) throw new Error(out.error ?? "could not load");
       setData(out);
+      setPhase("ready");
+      setError(null);
     } catch (e) {
       setError((e as Error).message);
+      // Keep whatever we already showed; a failed refresh should not blank
+      // a page someone may be reading a balance off.
+      setPhase((p) => (p === "ready" ? "ready" : "failed"));
     }
   }, [session]);
 
@@ -77,6 +93,12 @@ export default function MinePage() {
     const t = setInterval(load, 8000);
     return () => clearInterval(t);
   }, [load]);
+
+  // Re-signing in returns here, so the trip costs nothing but a click.
+  useEffect(() => {
+    if (phase !== "expired") return;
+    sessionStorage.setItem("intentlink.next", "/mine");
+  }, [phase]);
 
   /**
    * Every control here is signed by the person clicking it. The server
@@ -112,6 +134,24 @@ export default function MinePage() {
         <button onClick={signIn} className="btn btn-primary mt-6">
           Continue with Google
         </button>
+      </Shell>
+    );
+  }
+
+  if (phase === "expired") {
+    return (
+      <Shell>
+        <h1 className="text-4xl font-bold tracking-tight">Your intents</h1>
+        <div className="panel mt-6 p-6">
+          <Badge tone="pending">session expired</Badge>
+          <p className="mt-3 text-sm text-muted">
+            Google sign-ins last an hour. Nothing has changed on chain — your
+            intents are all still live, and so are their limits.
+          </p>
+          <button onClick={signIn} className="btn btn-primary mt-5">
+            Sign in again
+          </button>
+        </div>
       </Shell>
     );
   }
@@ -166,6 +206,7 @@ export default function MinePage() {
         hint="You funded these. You can end them at any moment."
         empty="Nothing yet. Create your first intent."
         rows={issued}
+        failed={phase === "failed"}
       >
         {(r) => (
           <Card key={r.label} row={r} side="issuer">
@@ -207,6 +248,7 @@ export default function MinePage() {
         hint="Authority someone gave you. A clean exit is what makes one safe to accept."
         empty="No intents have been issued to you."
         rows={received}
+        failed={phase === "failed"}
       >
         {(r) => (
           <Card key={r.label} row={r} side="recipient">
@@ -280,12 +322,14 @@ function Section({
   hint,
   empty,
   rows,
+  failed,
   children,
 }: {
   title: string;
   hint: string;
   empty: string;
   rows?: Row[];
+  failed?: boolean;
   children: (r: Row) => React.ReactNode;
 }) {
   return (
@@ -298,7 +342,13 @@ function Section({
 
       {!rows ? (
         <div className="panel-flat mt-4 p-6">
-          <p className="waiting text-sm text-muted">Reading the chain…</p>
+          {failed ? (
+            <p className="text-sm text-block">
+              Could not read the chain. Retrying every few seconds.
+            </p>
+          ) : (
+            <p className="waiting text-sm text-muted">Reading the chain…</p>
+          )}
         </div>
       ) : rows.length === 0 ? (
         <div className="panel-flat mt-4 p-6">
