@@ -54,7 +54,7 @@ export async function POST(request: Request) {
       description: describe(policy),
     });
 
-    putIntent({
+    await putIntent({
       label,
       name: ens.name,
       vaultId,
@@ -82,7 +82,8 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   const issuer = new URL(request.url).searchParams.get("issuer") ?? undefined;
-  return Response.json({ intents: listIntents(issuer).map(publicView) });
+  const intents = await listIntents(issuer);
+  return Response.json({ intents: intents.map(publicView) });
 }
 
 export { getIntent };

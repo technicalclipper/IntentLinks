@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { get, put } from "@vercel/blob";
 import type { Policy } from "./policy";
 
 /**
@@ -77,84 +78,129 @@ export interface IntentRecord {
 }
 
 /**
- * Where the file lives.
+ * Where the records live.
  *
- * Locally this sits beside the project. On Vercel the deployment
- * filesystem is read-only apart from /tmp, so writing beside the project
- * throws EROFS and every mint fails — the store has to move.
+ * Locally: a JSON file beside the project. Deployed: a private Vercel Blob.
  *
- * /tmp is per-instance and does not survive a cold start, which makes the
- * hosted deployment a place to try the product rather than a place to
- * keep anything. That is a deliberate trade for a hackathon: the parts
- * that matter — the vault, the capsule, every bound, the whole history —
- * live on Sui and are unaffected. What a cold start loses is the
- * per-capsule salt and the policy document, so older links stop
- * resolving while the capabilities themselves keep enforcing.
+ * The file was not merely inconvenient in production, it was wrong. Vercel
+ * runs each request on whichever instance is free, so a mint wrote to one
+ * machine's /tmp and the click that followed read an empty disk on
+ * another. The link 404'd while the capability it named was live on Sui —
+ * the worst kind of failure, because the chain was fine and the index was
+ * lying.
  *
- * Point INTENTLINK_DATA_DIR at durable storage to change that.
+ * The blob is private. These records hold per-capsule salts and plain
+ * recipient emails, and a public blob with an unguessable name is not
+ * privacy, it is a bet on nobody looking.
  */
 const DATA_DIR =
-  process.env.INTENTLINK_DATA_DIR ??
-  (process.env.VERCEL ? "/tmp/intentlink" : path.join(process.cwd(), ".data"));
-
+  process.env.INTENTLINK_DATA_DIR ?? path.join(process.cwd(), ".data");
 const FILE = path.join(DATA_DIR, "intents.json");
 
-function load(): Record<string, IntentRecord> {
-  try {
-    return JSON.parse(fs.readFileSync(FILE, "utf8")) as Record<string, IntentRecord>;
-  } catch {
-    return {};
+const BLOB_KEY = "intents.json";
+const useBlob = () => Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+
+/**
+ * A short-lived cache.
+ *
+ * Every route reads the store at least once, and a blob round-trip per
+ * call would put a network hop in front of pages that already wait on two
+ * chains. Two seconds is long enough to collapse the reads inside one
+ * request and short enough that a mint on another instance shows up
+ * before anyone reloads.
+ */
+let cache: { at: number; data: Record<string, IntentRecord> } | null = null;
+const TTL_MS = 2_000;
+
+async function load(): Promise<Record<string, IntentRecord>> {
+  if (cache && Date.now() - cache.at < TTL_MS) return cache.data;
+
+  let data: Record<string, IntentRecord> = {};
+  if (useBlob()) {
+    try {
+      const res = await get(BLOB_KEY, { access: "private", useCache: false });
+      if (res?.stream) {
+        const text = await new Response(res.stream).text();
+        if (text) data = JSON.parse(text) as Record<string, IntentRecord>;
+      }
+    } catch {
+      // A store that has never been written has no blob yet. An empty map
+      // is the correct reading of that, not an error.
+    }
+  } else {
+    try {
+      data = JSON.parse(fs.readFileSync(FILE, "utf8")) as Record<string, IntentRecord>;
+    } catch {
+      data = {};
+    }
   }
+
+  cache = { at: Date.now(), data };
+  return data;
 }
 
-function save(all: Record<string, IntentRecord>): void {
+async function save(all: Record<string, IntentRecord>): Promise<void> {
+  // Update the cache first so a read inside the same request sees the
+  // write, whether or not the round-trip has landed.
+  cache = { at: Date.now(), data: all };
+
+  const body = JSON.stringify(all, null, 2);
+  if (useBlob()) {
+    await put(BLOB_KEY, body, {
+      access: "private",
+      contentType: "application/json",
+      allowOverwrite: true,
+      addRandomSuffix: false,
+    });
+    return;
+  }
   fs.mkdirSync(path.dirname(FILE), { recursive: true });
-  fs.writeFileSync(FILE, JSON.stringify(all, null, 2));
+  fs.writeFileSync(FILE, body);
 }
 
-export function putIntent(record: IntentRecord): void {
-  const all = load();
+export async function putIntent(record: IntentRecord): Promise<void> {
+  const all = await load();
   all[record.label] = record;
-  save(all);
+  await save(all);
 }
 
-export function getIntent(label: string): IntentRecord | null {
-  return load()[label] ?? null;
+export async function getIntent(label: string): Promise<IntentRecord | null> {
+  return (await load())[label] ?? null;
 }
 
-export function setClaimer(label: string, claimerNullifier: string | null): void {
-  const all = load();
+export async function setClaimer(label: string, claimerNullifier: string | null): Promise<void> {
+  const all = await load();
   const r = all[label];
   if (!r) return;
   all[label] = { ...r, claimerNullifier };
-  save(all);
+  await save(all);
 }
 
-export function setAgent(
+export async function setAgent(
   label: string,
   agentMode: IntentRecord["agentMode"],
   agentAddress: string,
-): void {
-  const all = load();
+): Promise<void> {
+  const all = await load();
   const r = all[label];
   if (!r) return;
   all[label] = { ...r, agentMode, agentAddress };
-  save(all);
+  await save(all);
 }
 
-export function setEscalation(
+export async function setEscalation(
   label: string,
   escalation: IntentRecord["escalation"],
-): void {
-  const all = load();
+): Promise<void> {
+  const all = await load();
   const r = all[label];
   if (!r) return;
   all[label] = { ...r, escalation };
-  save(all);
+  await save(all);
 }
 
-export function listIntents(issuerAddress?: string): IntentRecord[] {
-  const all = Object.values(load());
+export async function listIntents(issuerAddress?: string): Promise<IntentRecord[]> {
+  const all = Object.values(await load());
   const filtered = issuerAddress
     ? all.filter((r) => r.issuerAddress.toLowerCase() === issuerAddress.toLowerCase())
     : all;

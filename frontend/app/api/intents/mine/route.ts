@@ -34,7 +34,8 @@ export async function POST(request: Request) {
     const email = claims.email ? normaliseEmail(claims.email) : null;
     const address = demoKeypair(claims).toSuiAddress();
 
-    const records = listIntents().slice(0, MAX);
+    const all = await listIntents();
+    const records = all.slice(0, MAX);
 
     // One read per capability, all at once. A failed read must not blank the
     // whole page — a capability whose chain state we cannot fetch is still
@@ -111,7 +112,7 @@ export async function POST(request: Request) {
       email: claims.email ?? null,
       issued,
       received,
-      truncated: listIntents().length > MAX,
+      truncated: all.length > MAX,
     });
   } catch (e) {
     const message = (e as Error).message;

@@ -24,7 +24,7 @@ export async function POST(
   { params }: { params: Promise<{ label: string }> },
 ) {
   const { label } = await params;
-  const record = getIntent(label);
+  const record = await getIntent(label);
   if (!record) return Response.json({ error: "not found" }, { status: 404 });
 
   try {
@@ -80,7 +80,7 @@ export async function POST(
         return Response.json({ error: res.error ?? "could not ask" }, { status: 400 });
       }
 
-      setEscalation(label, {
+      await setEscalation(label, {
         amount: amount.toString(),
         reason: "today's budget is spent and the spread is unusually good",
         nonce,
@@ -127,7 +127,7 @@ export async function POST(
         undefined,
         record.name,
       );
-      setEscalation(label, null);
+      await setEscalation(label, null);
       return Response.json({ events });
     }
 

@@ -35,7 +35,7 @@ export async function POST(
   { params }: { params: Promise<{ label: string }> },
 ) {
   const { label } = await params;
-  const record = getIntent(label);
+  const record = await getIntent(label);
   if (!record) return Response.json({ error: "not found" }, { status: 404 });
 
   try {
@@ -147,8 +147,8 @@ export async function POST(
 
     // Remember which way it was claimed, so every later screen can say
     // whose agent this is rather than implying it is always ours.
-    setAgent(label, mode, holder);
-    setClaimer(label, world.nullifier ?? null);
+    await setAgent(label, mode, holder);
+    await setClaimer(label, world.nullifier ?? null);
 
     return Response.json({
       success: true,

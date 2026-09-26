@@ -22,7 +22,7 @@ export async function GET(
   { params }: { params: Promise<{ label: string }> },
 ) {
   const { label } = await params;
-  const record = getIntent(label);
+  const record = await getIntent(label);
   if (!record) return new Response("not found", { status: 404 });
 
   const encoder = new TextEncoder();

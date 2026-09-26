@@ -87,7 +87,7 @@ export async function POST(
   // Find the capability this token belongs to. Tokens are derived from the
   // capsule id, so this is a scan over a handful of records rather than a
   // lookup table that can fall out of step with them.
-  const record = listMatching(token);
+  const record = await listMatching(token);
   if (!record) return err(body.id, -32001, "unknown or revoked connection token");
 
   try {
@@ -126,8 +126,8 @@ export async function POST(
  * scan over a handful of records instead of a lookup table that can fall
  * out of step with them. The comparison inside is constant-time.
  */
-function listMatching(token: string): IntentRecord | null {
-  for (const r of listIntents()) {
+async function listMatching(token: string): Promise<IntentRecord | null> {
+  for (const r of await listIntents()) {
     if (tokenMatches(token, r.capsuleId)) return r;
   }
   return null;
@@ -362,7 +362,7 @@ async function call(record: IntentRecord, params: Record<string, unknown>) {
       const res = await executeSponsored(tx, delegatedKeypair(record.capsuleId));
       if (!res.success) return text({ asked: false, error: res.error }, true);
 
-      setEscalation(record.label, {
+      await setEscalation(record.label, {
         amount: amount.toString(),
         reason: String(args.reason ?? "the agent gave no reason"),
         nonce,

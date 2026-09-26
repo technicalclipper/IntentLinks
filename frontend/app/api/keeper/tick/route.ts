@@ -36,7 +36,7 @@ export interface KeeperResult {
 export async function POST() {
   const results: KeeperResult[] = [];
 
-  for (const record of listIntents()) {
+  for (const record of await listIntents()) {
     try {
       const c = await readCapsule(record.capsuleId);
       const s = capsuleStatus(c, Date.now());

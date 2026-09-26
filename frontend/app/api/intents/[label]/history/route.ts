@@ -14,7 +14,7 @@ export async function GET(
   { params }: { params: Promise<{ label: string }> },
 ) {
   const { label } = await params;
-  const record = getIntent(label);
+  const record = await getIntent(label);
   if (!record) return Response.json({ error: "not found" }, { status: 404 });
 
   try {

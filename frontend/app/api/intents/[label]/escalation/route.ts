@@ -14,7 +14,7 @@ export async function GET(
   { params }: { params: Promise<{ label: string }> },
 ) {
   const { label } = await params;
-  const record = getIntent(label);
+  const record = await getIntent(label);
   if (!record) return Response.json({ error: "not found" }, { status: 404 });
 
   const e = record.escalation;
@@ -53,10 +53,10 @@ export async function POST(
   { params }: { params: Promise<{ label: string }> },
 ) {
   const { label } = await params;
-  const record = getIntent(label);
+  const record = await getIntent(label);
   if (!record) return Response.json({ error: "not found" }, { status: 404 });
   if (!record.escalation) return Response.json({ ok: true });
 
-  setEscalation(label, { ...record.escalation, approvedAt: Date.now() });
+  await setEscalation(label, { ...record.escalation, approvedAt: Date.now() });
   return Response.json({ ok: true });
 }
