@@ -39,9 +39,18 @@ interface Pending {
  *                    signal bound to hash(capsule, amount, nonce). A stored
  *                    credential cannot be replayed, and a yes to 26 cannot
  *                    be stretched into a yes to 260.
- *   the nullifier  — when the World action permits a second verification,
- *                    the same human as at mint. Optional by necessity: v4
- *                    actions allow one verification each.
+ *   the nullifier  — the same human as at mint. INERT here, and the code
+ *                    says so rather than pretending: nullifiers are scoped
+ *                    per (user, app, action), and we mint a fresh action
+ *                    per request because a World action permits one
+ *                    verification per human and the v4 API exposes no way
+ *                    to raise that. So the nullifier from this approval is
+ *                    unrelated to the one recorded at mint by design, and
+ *                    sending it aborted every approval with
+ *                    E_NOT_SAME_HUMAN. We send empty, which the contract
+ *                    reads as "no evidence" and skips. A nullifier that
+ *                    disagrees still aborts — absent evidence is
+ *                    tolerated, contradictory evidence is not.
  *
  * The agent can reach none of these. It can put a request on chain and
  * wait, which is the whole of its authority here.
@@ -143,7 +152,14 @@ export function Escalation({
           maxAmount: pending.amount,
           ttlMs: "600000",
           signalHash: pending.signalHash,
-          approverNullifier: out.nullifier ?? "",
+          /*
+           * Deliberately empty — see the note above. Passing out.nullifier
+           * here compares a nullifier from *this* action against one
+           * recorded under the mint action, which cannot match and aborts
+           * with 30. Restore it the day a single action can be verified
+           * against twice.
+           */
+          approverNullifier: "",
         },
         session,
       );
