@@ -74,6 +74,13 @@ export default function Deck() {
           <span className="text-4xl font-bold tracking-tight sm:text-5xl">IntentLink</span>
         </div>
 
+        {/* The one-line descriptor, directly under the name — the sentence
+            someone repeats to a colleague after walking away. */}
+        <p className="mt-4 max-w-2xl text-lg leading-relaxed text-muted sm:text-xl">
+          Shareable links that grant AI agents bounded, revocable spending authority
+          — <b className="text-ink">enforced on-chain.</b>
+        </p>
+
         <span className="badge mt-6 inline-block bg-sun">ETHGlobal Tokyo 2026</span>
 
         <h1 className="mt-5 text-5xl leading-[0.88] font-bold tracking-tight sm:text-7xl">
@@ -83,11 +90,11 @@ export default function Deck() {
           <br />
           <span className="marker text-sui-deep">permission.</span>
         </h1>
-        <p className="mt-8 max-w-xl text-xl leading-relaxed text-muted">
-          Bounded, revocable spending authority for AI agents —{" "}
-          <b className="text-ink">enforced by the chain, not by the agent&rsquo;s good behaviour.</b>
+        <p className="mt-7 max-w-xl text-lg leading-relaxed text-muted">
+          The limits aren&rsquo;t in our code. They&rsquo;re Move asserts on Sui —{" "}
+          <b className="text-ink">nineteen of them, on every single spend.</b>
         </p>
-        <p className="val mt-10 text-xs tracking-widest text-muted uppercase">
+        <p className="val mt-9 text-xs tracking-widest text-muted uppercase">
           Sui · ENS · World ID ↓
         </p>
       </Slide>
