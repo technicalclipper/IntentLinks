@@ -105,6 +105,8 @@ export default function Console({ params }: { params: Promise<{ label: string }>
             ["wrongPool", "Unapproved pool", "block"],
             ["keepProceeds", "Keep the proceeds", "block"],
             ["decline", "Decline to trade", "pending"],
+            ["escalate", "Ask permission", "pending"],
+            ["usePermit", "Spend the permit", "pass"],
           ] as const
         ).map(([k, labelText, tone]) => (
           <button

@@ -120,3 +120,34 @@ export function policyMatches(capsule: CapsuleState, ensPolicyHash: string): boo
   const norm = (s: string) => s.toLowerCase().replace(/^0x/, "");
   return norm(capsule.policyHash) === norm(ensPolicyHash);
 }
+
+/**
+ * The agent's permit for one specific capsule, if it holds one.
+ *
+ * Matching on `capsule_id` matters: a permit approved for a different
+ * capability is refused on chain by E_PERMIT_WRONG_CAPSULE, which is
+ * correct but reads as a bug when the agent simply picked up the wrong
+ * one of several it happens to hold.
+ */
+export async function findPermitFor(
+  owner: string,
+  capsuleId: string,
+  permitType: string,
+): Promise<string | null> {
+  const res = (await suiClient().core.listOwnedObjects({
+    owner,
+    type: permitType,
+  })) as unknown as { objects?: { id?: string; objectId?: string }[] };
+
+  for (const o of res.objects ?? []) {
+    const id = o.id ?? o.objectId;
+    if (!id) continue;
+    try {
+      const f = await jsonFields(id);
+      if (String(f.capsule_id) === capsuleId) return id;
+    } catch {
+      /* A permit we cannot read is one we will not spend. */
+    }
+  }
+  return null;
+}

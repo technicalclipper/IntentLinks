@@ -25,7 +25,20 @@ export type Action =
   | { kind: "principalPause"; capsuleId: string; paused: boolean }
   | { kind: "surrender"; capsuleId: string }
   | { kind: "withdraw"; vaultId: string; amount: string }
-  | { kind: "fundVault"; vaultId: string; amount: string };
+  | { kind: "fundVault"; vaultId: string; amount: string }
+  /*
+   * Only the issuer can produce this one, and not because we check — the
+   * Move function asserts the sender is the capsule's issuer, so a
+   * transaction built here for anyone else is simply worthless.
+   */
+  | {
+      kind: "approveEscalation";
+      capsuleId: string;
+      maxAmount: string;
+      ttlMs: string;
+      signalHash: string;
+      approverNullifier?: string;
+    };
 
 export interface MintArgs {
   vaultId: string;
@@ -143,6 +156,15 @@ async function build(action: Action, sender: string): Promise<Transaction> {
       tx.transferObjects([coin], tx.pure.address(sender));
       break;
     }
+    case "approveEscalation":
+      il.approveEscalation(tx, {
+        capsuleId: action.capsuleId,
+        maxAmount: BigInt(action.maxAmount),
+        ttlMs: BigInt(action.ttlMs),
+        signalHash: action.signalHash,
+        approverNullifier: action.approverNullifier,
+      });
+      break;
   }
 
   return tx;

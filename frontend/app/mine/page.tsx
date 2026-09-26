@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Escalation } from "@/components/Escalation";
 import { Badge, Copy, Field, Meter, Mono, Shell, phaseTone } from "@/components/ui";
 import { sendAction } from "@/lib/tx-client";
 import { useZkLogin } from "@/lib/zklogin/useZkLogin";
@@ -209,7 +210,21 @@ export default function MinePage() {
         failed={phase === "failed"}
       >
         {(r) => (
-          <Card key={r.label} row={r} side="issuer">
+          <Card
+            key={r.label}
+            row={r}
+            side="issuer"
+            extra={
+              r.holder && session ? (
+                <Escalation
+                  label={r.label}
+                  capsuleId={r.capsuleId}
+                  session={session}
+                  onApproved={load}
+                />
+              ) : null
+            }
+          >
             {/* Pausing is reversible and revocation is not, so they do not
                 get the same weight. */}
             <button
@@ -365,10 +380,12 @@ function Card({
   row,
   side,
   children,
+  extra,
 }: {
   row: Row;
   side: "issuer" | "recipient";
   children: React.ReactNode;
+  extra?: React.ReactNode;
 }) {
   if (row.unreadable) {
     return (
@@ -452,6 +469,8 @@ function Card({
             console →
           </a>
         </div>
+
+        {extra}
       </div>
     </article>
   );

@@ -29,6 +29,22 @@ export interface IntentRecord {
   recipientEmail: string | null;
   issuerAddress: string;
   createdAt: number;
+  /**
+   * The agent's outstanding ask, if any.
+   *
+   * The authoritative record is the EscalationRequested event on chain —
+   * this is a local index so the issuer's page can find it without
+   * scanning events, and it is deliberately not trusted for anything. The
+   * approval asserts against the capsule, not against this.
+   */
+  escalation?: {
+    amount: string;
+    reason: string;
+    nonce: string;
+    signalHash: string;
+    requestedAt: number;
+    approvedAt?: number;
+  } | null;
 }
 
 const FILE = path.join(process.cwd(), ".data", "intents.json");
@@ -54,6 +70,17 @@ export function putIntent(record: IntentRecord): void {
 
 export function getIntent(label: string): IntentRecord | null {
   return load()[label] ?? null;
+}
+
+export function setEscalation(
+  label: string,
+  escalation: IntentRecord["escalation"],
+): void {
+  const all = load();
+  const r = all[label];
+  if (!r) return;
+  all[label] = { ...r, escalation };
+  save(all);
 }
 
 export function listIntents(issuerAddress?: string): IntentRecord[] {
