@@ -6,7 +6,7 @@ import { readCapsule } from "@/lib/chain/read";
 import { claim } from "@/lib/chain/tx";
 import { setStatus } from "@/lib/ens";
 import { connectionToken, delegatedAddress, isSuiAddress, type AgentMode } from "@/lib/agent/byoa";
-import { getIntent, setAgent } from "@/lib/store";
+import { getIntent, setAgent, setClaimer } from "@/lib/store";
 import { recipientHash, verifyGoogleIdToken } from "@/lib/zklogin/server";
 import { verifyWorldProof } from "@/lib/world";
 import type { IDKitResult } from "@worldcoin/idkit-core";
@@ -17,8 +17,10 @@ import type { IDKitResult } from "@worldcoin/idkit-core";
  * Three checks, answering three different questions, none of which can
  * substitute for another:
  *
- *   World ID  — is this one unique human? Stops a forwarded link being
- *               claimed repeatedly by one person with many accounts.
+ *   World ID  — is a live human doing this, right now? Not a script, not
+ *               a stored credential being replayed. It does *not* stop
+ *               double-claiming: assert!(holder.is_none()) below does
+ *               that, with or without World.
  *   Google    — is this the *specific* person it was addressed to? World
  *               cannot tell you which human, only that there is one.
  *   on-chain  — has it already been claimed? assert!(holder.is_none())
@@ -146,6 +148,7 @@ export async function POST(
     // Remember which way it was claimed, so every later screen can say
     // whose agent this is rather than implying it is always ours.
     setAgent(label, mode, holder);
+    setClaimer(label, world.nullifier ?? null);
 
     return Response.json({
       success: true,

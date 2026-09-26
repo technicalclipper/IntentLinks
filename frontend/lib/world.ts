@@ -10,9 +10,18 @@ import { hashSignal } from "@worldcoin/idkit-core";
  * Two trust moments in this product, and it is worth being precise about
  * which is which:
  *
- *   redemption  — one link, one human. Stops a forwarded link being claimed
- *                 repeatedly by one person with many Google accounts. Google
- *                 proves *which* account, never *how many people*.
+ *   redemption  — a live human is claiming this, now. Not a script, not a
+ *                 replayed credential.
+ *
+ *                 It is worth being exact, because the obvious claim is
+ *                 wrong: this does not stop a link being claimed twice.
+ *                 assert!(holder.is_none()) does that, and would with
+ *                 World removed entirely. Nor does it currently stop one
+ *                 person claiming many links — that needs the claimer
+ *                 nullifiers compared across capsules, and nothing
+ *                 compares them. We keep one so the check is auditable
+ *                 and so a one-per-person campaign has something to build
+ *                 on.
  *
  *   escalation  — the agent cannot approve its own privilege escalation. It
  *                 needs a fresh proof that the human who set the limit is

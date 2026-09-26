@@ -47,6 +47,16 @@ export interface IntentRecord {
    */
   agentMode?: "managed" | "delegated" | "external";
   agentAddress?: string;
+  /**
+   * The World nullifier of whoever redeemed this.
+   *
+   * Retained so a proof leaves a trace: it is what a one-per-person
+   * campaign across several links would compare, and without keeping it
+   * the verification at redemption is unauditable after the fact. It is
+   * not currently compared against anything — one capsule can only be
+   * claimed once regardless, and that is the chain's doing, not World's.
+   */
+  claimerNullifier?: string | null;
   createdAt: number;
   /**
    * The agent's outstanding ask, if any.
@@ -89,6 +99,14 @@ export function putIntent(record: IntentRecord): void {
 
 export function getIntent(label: string): IntentRecord | null {
   return load()[label] ?? null;
+}
+
+export function setClaimer(label: string, claimerNullifier: string | null): void {
+  const all = load();
+  const r = all[label];
+  if (!r) return;
+  all[label] = { ...r, claimerNullifier };
+  save(all);
 }
 
 export function setAgent(

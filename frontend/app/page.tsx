@@ -147,7 +147,7 @@ export default function Home() {
           />
           <Pillar
             k="World"
-            v="One link, one human. And the agent cannot approve its own escalation, because it cannot be a person."
+            v="A live human redeems the link — and, the part nothing else can do, the agent cannot approve its own escalation, because it cannot be a person."
           />
         </div>
       </div>

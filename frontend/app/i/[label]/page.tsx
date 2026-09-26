@@ -375,9 +375,11 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
           </div>
         ) : (
           <div className="panel p-5">
-            <h2 className="text-lg font-bold">One link, one human</h2>
+            <h2 className="text-lg font-bold">Prove you are a person</h2>
             <p className="mt-1 text-sm text-muted">
-              Verify with World so a forwarded copy cannot be claimed twice.
+              This link can only be claimed once — the contract enforces that on its
+              own. World proves a live human is the one claiming it, rather than a
+              script or a credential someone stored earlier.
             </p>
 
             {/* Chosen before redemption, because a capsule is claimed once
