@@ -1,4 +1,5 @@
 import type { IDKitResult } from "@worldcoin/idkit-core";
+import { hashSignal } from "@worldcoin/idkit-core";
 
 /**
  * World ID, server side.
@@ -82,6 +83,11 @@ function verificationLevel(identifier: string): string {
  * `expectSignal` welds an approval to one exact request — for escalation
  * that is hash(capsule, amount, nonce), so a "yes" to 26 cannot be replayed
  * as a "yes" to 260.
+ *
+ * The comparison has to be hash against hash. World returns `signal_hash`,
+ * the hashed form, while we hold the plaintext signal — so the plaintext
+ * never equals it and checking directly rejects every genuine approval.
+ * hashSignal is the same function the widget applied on the way in.
  */
 export async function verifyWorldProof(
   result: IDKitResult,
@@ -119,8 +125,25 @@ export async function verifyWorldProof(
     return { ok: false, error: "proof contains no credential response" };
   }
 
-  if (opts.expectSignal && credential.signal_hash !== opts.expectSignal) {
-    return { ok: false, error: "this approval was issued for a different request" };
+  if (opts.expectSignal) {
+    /*
+     * Accept either encoding of the same signal.
+     *
+     * The legacy (v3) presets and the v4 path do not hash identically, and
+     * which one applies depends on the credential the phone chose — so
+     * pinning a single form would reject genuine approvals depending on
+     * how the person verified. Both candidates are derived from our own
+     * plaintext, so this still binds the approval to this exact request:
+     * a proof carrying any other signal matches neither.
+     */
+    const norm = (h: string) => h.toLowerCase().replace(/^0x/, "");
+    const got = norm(credential.signal_hash ?? "");
+    const accepted = [hashSignal(opts.expectSignal), opts.expectSignal].map(norm);
+
+    if (!got || !accepted.includes(got)) {
+      console.log("[world] signal mismatch", { got, accepted });
+      return { ok: false, error: "this approval was issued for a different request" };
+    }
   }
 
   // v4 takes the result whole — protocol version, nonce, action and the
