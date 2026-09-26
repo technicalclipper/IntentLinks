@@ -1,3 +1,4 @@
+import { agentAddress } from "@/lib/chain/client";
 import { DEMO_POOL_ID } from "@/lib/chain/config";
 import { readCapsule } from "@/lib/chain/read";
 import { capsuleStatus } from "@/lib/chain/types";
@@ -49,6 +50,24 @@ export async function POST() {
         continue;
       }
 
+      /*
+       * Only capabilities this keeper actually holds.
+       *
+       * A capsule handed to someone else's agent executes for their key
+       * and refuses ours with E_NOT_HOLDER — correct, and pointless to
+       * discover once a minute at the cost of a transaction. Those are
+       * driven by whatever the recipient connected; this loop is for the
+       * managed ones.
+       */
+      if (c.holder.toLowerCase() !== agentAddress().toLowerCase()) {
+        results.push({
+          label: record.label,
+          did: "idle",
+          detail: `held by another agent (${c.holder.slice(0, 10)}…)`,
+        });
+        continue;
+      }
+
       // Spend what this period allows and no more. The chain would refuse
       // anything larger anyway; asking for it would just burn gas proving
       // a point we already prove elsewhere.
@@ -79,6 +98,10 @@ export async function POST() {
           slippageBps: c.maxSlippageBps,
         },
         { label: "scheduled buy" },
+        undefined,
+        // Unattended: nobody is watching this one, so the cross-chain
+        // check matters more here than anywhere.
+        record.name,
       );
 
       const blocked = events.find((e) => e.kind === "blocked");

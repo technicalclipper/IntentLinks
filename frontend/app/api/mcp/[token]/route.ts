@@ -312,6 +312,7 @@ async function call(record: IntentRecord, params: Record<string, unknown>) {
         },
         { label: String(args.reason ?? "agent trade") },
         delegatedKeypair(record.capsuleId),
+        record.name,
       );
 
       const blocked = events.find((e) => e.kind === "blocked");

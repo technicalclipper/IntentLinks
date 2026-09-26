@@ -124,6 +124,8 @@ export async function POST(
         record.vaultId,
         { ...base, amount },
         { label: "sell above the daily limit, with the issuer's permit", permitId },
+        undefined,
+        record.name,
       );
       setEscalation(label, null);
       return Response.json({ events });
@@ -148,9 +150,14 @@ export async function POST(
       },
     }[action ?? "within"];
 
-    const events = await attempt(record.capsuleId, record.vaultId, plan.p, {
-      label: plan.label,
-    });
+    const events = await attempt(
+      record.capsuleId,
+      record.vaultId,
+      plan.p,
+      { label: plan.label },
+      undefined,
+      record.name,
+    );
     return Response.json({ events });
   } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 400 });

@@ -7,6 +7,7 @@ import {
   suiClient,
 } from "../chain/client";
 import { Beneficiary, DEMO_POOL_ID, SkipReason } from "../chain/config";
+import { attestPolicy } from "./attest";
 import { executeSponsored } from "../chain/sponsor";
 import { decodeAbort } from "../chain/errors";
 import { readCapsule } from "../chain/read";
@@ -155,6 +156,16 @@ export async function attempt(
    * limits were never about which program was asking.
    */
   signer?: Signer,
+  /**
+   * The ENS name publishing this capability's terms.
+   *
+   * When given, the agent checks the published policy hash against the
+   * enforced one before it acts, and stops if they contradict. Optional
+   * because a capsule is perfectly enforceable without a name — Sui is
+   * the chain that refuses things — but a name that disagrees with the
+   * object is a fact the agent should not trade through.
+   */
+  ensName?: string,
 ): Promise<AgentEvent[]> {
   const events: AgentEvent[] = [];
   const c = await readCapsule(capsuleId);
@@ -171,6 +182,27 @@ export async function attempt(
     amount: `${sui(p.amount)} SUI`,
     meta: out > 0n ? `expects ≥ ${sui(minOut)} DUSD` : undefined,
   });
+
+  /*
+   * Ethereum and Sui must still agree about what was promised.
+   *
+   * This runs before the engine rather than after, because a contradiction
+   * between the published terms and the enforced ones is not a bound to
+   * be checked — it is a reason to stop reasoning about bounds at all.
+   */
+  if (ensName) {
+    const attested = await attestPolicy(ensName, c.policyHash);
+    if (!attested.ok) {
+      events.push({ kind: "info", text: attested.reason ?? "ENS and Sui disagree" });
+      events.push({
+        kind: "blocked",
+        code: "E_POLICY_MISMATCH",
+        message: "The published terms do not match the enforced ones. Nothing attempted.",
+        text: opts.label,
+      });
+      return events;
+    }
+  }
 
   const verdict = check(c, p, Date.now());
   events.push({ kind: "engine", ok: verdict.ok, reason: verdict.reason });
