@@ -249,15 +249,23 @@ export default function Console({ params }: { params: Promise<{ label: string }>
       })()}
 
       {/*
-        Demo instruments, not the product. Driving the agent by hand is for
-        answering "what if it tries X" in two seconds instead of waiting for
-        a budget window — which is why it is folded away rather than being
-        the first thing a recipient sees on a page about their own money.
+        Drive it by hand.
+        
+        These answer "what if it tries X" in two seconds rather than making
+        someone wait for a budget window to roll, which is the whole reason
+        they exist. They were folded into a disclosure to keep the page
+        leading with the recipient's own controls, and a collapsed section
+        is a section nobody finds — so they are plainly visible, below the
+        status rather than above it.
       */}
-      <details className="mt-8">
-        <summary className="val cursor-pointer list-none text-xs tracking-widest text-muted uppercase hover:text-sui-deep">
-          ▸ drive it by hand
-        </summary>
+      <section className="mt-8">
+        <p className="val text-xs tracking-widest text-muted uppercase">
+          Drive it by hand
+        </p>
+        <p className="mt-1 text-xs text-muted">
+          Each one attempts a real transaction. The refusals are refusals from Sui,
+          not from this page.
+        </p>
 
         <button onClick={run} disabled={running} className="btn btn-primary mt-4 w-full py-3.5">
           {running ? "Running…" : events.length ? "Replay the scripted run ↻" : "Play a scripted run →"}
@@ -292,7 +300,7 @@ export default function Console({ params }: { params: Promise<{ label: string }>
           </button>
         ))}
         </div>
-      </details>
+      </section>
 
       {/*
         The live feed is this run and nothing else — it lives in component
