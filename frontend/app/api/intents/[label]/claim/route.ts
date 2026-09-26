@@ -38,10 +38,11 @@ export async function POST(
   try {
     const body = (await request.json()) as {
       worldProof?: IDKitResult;
+      action?: string;
       idToken?: string;
       principal?: string;
     };
-    const { worldProof, idToken, principal } = body;
+    const { worldProof, action, idToken, principal } = body;
 
     if (!worldProof) return Response.json({ error: "World verification is required" }, { status: 400 });
     if (!idToken || !principal) {
@@ -49,7 +50,7 @@ export async function POST(
     }
 
     // --- one unique human --------------------------------------
-    const world = await verifyWorldProof(worldProof);
+    const world = await verifyWorldProof(worldProof, { action });
     if (!world.ok) {
       return Response.json({ error: `World: ${world.error}` }, { status: 403 });
     }

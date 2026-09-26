@@ -82,6 +82,9 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
   const [rejected, setRejected] = useState<{ issuedTo: string; signedInAs: string } | null>(null);
   const [claimed, setClaimed] = useState(false);
   const [rp, setRp] = useState<RpContext | null>(null);
+  // The server mints a fresh action per request, so a second
+  // verification is never treated as a repeat of the first.
+  const [action, setAction] = useState<string | null>(null);
   const [worldOpen, setWorldOpen] = useState(false);
 
   // v4 proof requests must be signed by the relying party, so the browser
@@ -90,10 +93,17 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
     fetch("/api/world/request", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: ACTION }),
+      body: JSON.stringify({
+        purpose: "redeem",
+        description: "Claim an IntentLink permission",
+      }),
     })
       .then((r) => r.json())
-      .then((d) => d.rp_context && setRp(d.rp_context))
+      .then((d) => {
+        if (!d.rp_context) return;
+        setRp(d.rp_context);
+        setAction(d.action);
+      })
       .catch(() => {});
   }, []);
 
@@ -123,6 +133,7 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           worldProof: proof,
+          action,
           idToken: session.idToken,
           principal: session.address,
         }),
@@ -278,19 +289,19 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
         <div className="mt-6">
           <button
             onClick={() => setWorldOpen(true)}
-            disabled={claiming || !rp}
+            disabled={claiming || !rp || !action}
             className="border border-ink bg-ink px-4 py-2 text-sm text-paper disabled:opacity-40"
           >
             {claiming ? "Redeeming…" : !rp ? "Preparing…" : "Verify with World to redeem"}
           </button>
 
           {/* World's own modal — QR on desktop, deep link on mobile. */}
-          {rp && (
+          {rp && action && (
             <IDKitRequestWidget
               open={worldOpen}
               onOpenChange={setWorldOpen}
               app_id={APP_ID}
-              action={ACTION}
+              action={action!}
               rp_context={rp}
               allow_legacy_proofs
               action_description="Redeem an IntentLink permission"

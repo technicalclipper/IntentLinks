@@ -68,6 +68,9 @@ export default function Create() {
   // who set the limit, not merely a human.
   const [issuerNullifier, setIssuerNullifier] = useState<string | null>(null);
   const [rp, setRp] = useState<RpContext | null>(null);
+  // The server mints a fresh action per request, so a second
+  // verification is never treated as a repeat of the first.
+  const [action, setAction] = useState<string | null>(null);
   const [worldOpen, setWorldOpen] = useState(false);
   const [verifying, setVerifying] = useState(false);
 
@@ -75,10 +78,17 @@ export default function Create() {
     fetch("/api/world/request", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: ACTION }),
+      body: JSON.stringify({
+        purpose: "issue",
+        description: "Create an IntentLink permission",
+      }),
     })
       .then((r) => r.json())
-      .then((d) => d.rp_context && setRp(d.rp_context))
+      .then((d) => {
+        if (!d.rp_context) return;
+        setRp(d.rp_context);
+        setAction(d.action);
+      })
       .catch(() => {});
   }, []);
 
@@ -109,7 +119,7 @@ export default function Create() {
       const res = await fetch("/api/world/verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ proof, action: ACTION }),
+        body: JSON.stringify({ proof, action }),
       });
       const out = await res.json();
       if (!res.ok) throw new Error(out.error ?? "verification failed");
@@ -432,7 +442,7 @@ export default function Create() {
             <>
               <button
                 onClick={() => setWorldOpen(true)}
-                disabled={!rp || verifying}
+                disabled={!rp || !action || verifying}
                 className="w-full border border-ink bg-ink px-5 py-3.5 text-paper disabled:opacity-30"
               >
                 {verifying ? "Verifying…" : !rp ? "Preparing…" : "Verify with World & create →"}
@@ -441,12 +451,12 @@ export default function Create() {
                 Your proof is recorded on the capsule. It is what lets the agent ask
                 you — and only you — to exceed a limit.
               </p>
-              {rp && (
+              {rp && action && (
                 <IDKitRequestWidget
                   open={worldOpen}
                   onOpenChange={setWorldOpen}
                   app_id={APP_ID}
-                  action={ACTION}
+                  action={action!}
                   rp_context={rp}
                   allow_legacy_proofs
                   action_description="Create an IntentLink permission"
