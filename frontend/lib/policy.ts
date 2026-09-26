@@ -81,6 +81,8 @@ export function comparePolicyToCapsule(
     maxSlippageBps: bigint;
     notBefore: bigint;
     expiresAt: bigint;
+    beneficiaryMode: number;
+    beneficiaryAddr: string | null;
   },
 ): PolicyMismatch[] {
   const out: PolicyMismatch[] = [];
@@ -109,6 +111,42 @@ export function comparePolicyToCapsule(
       published: policy.allowedPools.join(","),
       enforced: capsule.allowedPools.join(","),
     });
+  }
+
+  /*
+   * Where the proceeds go.
+   *
+   * The most consequential field in the document and, until now, the one
+   * nobody checked. The numeric caps and the pool scope were compared;
+   * the destination was taken on faith — so a capsule could have been
+   * minted settling to the issuer's vault while the published terms told
+   * the recipient the money was theirs, and every badge on the page would
+   * still have read "verified".
+   *
+   * The hash does not cover this. It is a hash *of the document*, stored
+   * on the capsule at mint; it proves the two chains carry the same
+   * document, not that the object matches what the document says.
+   */
+  const MODE: Record<string, number> = { vault: 0, recipient: 1 };
+  // Anything that is not one of the two named modes is a fixed address.
+  const publishedMode = MODE[policy.beneficiary] ?? 2;
+  if (publishedMode !== capsule.beneficiaryMode) {
+    out.push({
+      field: "beneficiary",
+      published: policy.beneficiary,
+      enforced: ["vault", "recipient", capsule.beneficiaryAddr ?? "fixed"][
+        capsule.beneficiaryMode
+      ] ?? String(capsule.beneficiaryMode),
+    });
+  } else if (publishedMode === 2) {
+    const norm = (v: string) => v.toLowerCase().replace(/^0x0*/, "");
+    if (norm(policy.beneficiary) !== norm(capsule.beneficiaryAddr ?? "")) {
+      out.push({
+        field: "beneficiary",
+        published: policy.beneficiary,
+        enforced: capsule.beneficiaryAddr ?? "none",
+      });
+    }
   }
 
   return out;
