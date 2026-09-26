@@ -182,14 +182,26 @@ export default function Create() {
       const bal = await fetch(`/api/balance?address=${session.address}`).then((r) => r.json());
       if (BigInt(bal.balance ?? 0) < total + BigInt(50_000_000)) {
         setStep("topping up your testnet balance");
-        await fetch("/api/dev/fund", {
+        // Checking this matters. When the faucet fails the mint carries on
+        // and dies further down with "not enough SUI", which reads as the
+        // user's problem rather than ours.
+        const top = await fetch("/api/dev/fund", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             address: session.address,
             amount: (total + BigInt(100_000_000)).toString(),
           }),
-        });
+        })
+          .then((r) => r.json())
+          .catch((e) => ({ error: String(e) }));
+
+        if (!top.success) {
+          throw new Error(
+            `Could not top up ${session.address} — ${top.error ?? "the testnet faucet is dry"}. ` +
+              `Send it some SUI and try again.`,
+          );
+        }
       }
 
       setStep("funding the vault");
@@ -473,7 +485,9 @@ export default function Create() {
 
   return (
     <Shell>
-      <h1 className="text-5xl leading-[0.95] tracking-tight">
+      <AccountStrip address={session.address} email={session.email} />
+
+      <h1 className="mt-6 text-5xl leading-[0.95] tracking-tight">
         Say what the
         <br />
         agent <span className="text-accent">may do.</span>
@@ -566,4 +580,43 @@ function Row({ k, v, note }: { k: string; v: string; note?: string }) {
 function maskEmail(email: string): string {
   const [local, domain] = email.split("@");
   return domain ? `${local.slice(0, 1)}•••@${domain}` : "•••";
+}
+
+/**
+ * Who you are signed in as, and what that address holds.
+ *
+ * Gas is sponsored but the vault is funded from the issuer's own coins, so
+ * this is the balance that can actually block a mint. Before this existed
+ * the only way to learn the address was to run out of money and read it out
+ * of an error.
+ */
+function AccountStrip({ address, email }: { address: string; email?: string }) {
+  const [balance, setBalance] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/balance?address=${address}`)
+      .then((r) => r.json())
+      .then((d) => setBalance(d.balance ?? "0"))
+      .catch(() => {});
+  }, [address]);
+
+  const sui = balance === null ? null : Number(balance) / 1_000_000_000;
+
+  return (
+    <div className="panel flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs">
+      <div className="min-w-0">
+        {email && <span className="text-muted">{email}</span>}
+        <button
+          onClick={() => navigator.clipboard?.writeText(address)}
+          title="Copy — top this address up if a mint runs short"
+          className="val ml-2 break-all text-ink hover:text-accent"
+        >
+          {address.slice(0, 10)}…{address.slice(-6)}
+        </button>
+      </div>
+      <span className={sui !== null && sui < 0.1 ? "text-block" : "text-muted"}>
+        {sui === null ? "…" : `${sui.toFixed(4)} SUI`}
+      </span>
+    </div>
+  );
 }

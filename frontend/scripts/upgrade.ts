@@ -83,7 +83,7 @@ async function main() {
 
   if (!published?.objectId) {
     console.error("no package in objectChanges");
-    console.error(JSON.stringify(res.effects ?? res, null, 2).slice(0, 2000));
+    console.error(JSON.stringify(res, null, 2).slice(0, 2000));
     process.exit(1);
   }
 

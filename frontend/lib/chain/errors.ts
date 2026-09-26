@@ -38,6 +38,8 @@ export const AbortCode = {
   PERMIT_WRONG_CAPSULE: 27,
   PERMIT_EXPIRED: 28,
   PERMIT_AMOUNT: 29,
+  NOT_SAME_HUMAN: 30,
+  DEPRECATED: 31,
 } as const;
 
 export type AbortCodeValue = (typeof AbortCode)[keyof typeof AbortCode];
@@ -77,6 +79,9 @@ const MESSAGES: Record<number, string> = {
   [AbortCode.PERMIT_WRONG_CAPSULE]: "That approval was for a different capability.",
   [AbortCode.PERMIT_EXPIRED]: "That approval expired before it was used.",
   [AbortCode.PERMIT_AMOUNT]: "Above the amount that was approved.",
+  [AbortCode.NOT_SAME_HUMAN]:
+    "A different person approved this than the one who set the limit.",
+  [AbortCode.DEPRECATED]: "That entry point was retired.",
 };
 
 export interface DecodedAbort {

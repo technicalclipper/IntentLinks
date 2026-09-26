@@ -220,9 +220,35 @@ async function main() {
 
   // --- escalation ------------------------------------------------
   console.log("\nescalation");
+  // The agent may ask, and signs that itself.
   tx = new Transaction();
-  il.mintPermit(tx, {
-    verifierCapId: VERIFIER_CAP_ID!,
+  il.requestEscalation(tx, {
+    capsuleId,
+    amount: 60n,
+    reasonCode: SkipReason.WOULD_EXCEED_WINDOW,
+    signalHash: "0x2222",
+  });
+  r = await run(tx, agent);
+  r.success ? ok("request_escalation (agent)") : bad("request_escalation", r.error ?? undefined);
+
+  // ...and may not answer itself. This is the assert the whole escalation
+  // story rests on, so it gets exercised against the live chain.
+  tx = new Transaction();
+  il.approveEscalation(tx, {
+    capsuleId, maxAmount: 60n, ttlMs: 120_000n, signalHash: "0x2222",
+  });
+  await expectAbort("agent cannot approve its own request", "E_NOT_ISSUER", tx, agent);
+
+  // A different human at the issuer's own keyboard is refused too.
+  tx = new Transaction();
+  il.approveEscalation(tx, {
+    capsuleId, maxAmount: 60n, ttlMs: 120_000n, signalHash: "0x2222",
+    approverNullifier: "0xfeedface", // capsule was minted with 0xdeadbeef
+  });
+  await expectAbort("a different human cannot approve", "E_NOT_SAME_HUMAN", tx);
+
+  tx = new Transaction();
+  il.approveEscalation(tx, {
     capsuleId,
     maxAmount: 300n, // above the 250 hard cap
     ttlMs: 120_000n,
@@ -230,17 +256,15 @@ async function main() {
   });
   await expectAbort("permit above the hard cap", "E_OVER_HARD_CAP", tx);
 
+  // The matching nullifier — same account AND same human, both checked.
   tx = new Transaction();
-  il.mintPermit(tx, {
-    verifierCapId: VERIFIER_CAP_ID!,
-    capsuleId,
-    maxAmount: 60n,
-    ttlMs: 120_000n,
-    signalHash: "0x2222",
+  il.approveEscalation(tx, {
+    capsuleId, maxAmount: 60n, ttlMs: 120_000n, signalHash: "0x2222",
+    approverNullifier: "0xdeadbeef",
   });
   r = await run(tx);
   const permitId = createdId(r, "::Permit")!;
-  permitId ? ok("mint_permit", permitId.slice(0, 10) + "…") : bad("mint_permit");
+  permitId ? ok("approve_escalation", permitId.slice(0, 10) + "…") : bad("approve_escalation");
 
   tx = new Transaction();
   il.executeElevated(tx, {

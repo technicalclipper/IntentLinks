@@ -71,9 +71,13 @@ async function senderCoin(tx: Transaction, sender: string, amount: bigint) {
   }
 
   if (have < amount) {
+    // Naming the address matters: it is the issuer's own zkLogin address,
+    // not the sponsor's, and there is nowhere in the UI to look it up.
+    const short = (n: bigint) => (Number(n) / 1e9).toFixed(4);
     throw new Error(
-      `Not enough SUI. This address holds ${have} MIST but the vault needs ${amount}. ` +
-        `Gas is sponsored, but the funds going into the vault are the issuer's own.`,
+      `Not enough SUI. ${sender} holds ${short(have)} SUI but the vault needs ` +
+        `${short(amount)}. Gas is sponsored; the funds going into the vault ` +
+        `are the issuer's own, so top up that address.`,
     );
   }
 
