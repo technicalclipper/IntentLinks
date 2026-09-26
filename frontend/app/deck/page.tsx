@@ -19,6 +19,8 @@ const SLIDES = [
   "the idea",
   "the problem",
   "the refusal",
+  "the objects",
+  "the asserts",
   "use cases",
   "your agent",
   "world",
@@ -171,7 +173,69 @@ export default function Deck() {
         </p>
       </Slide>
 
-      <Slide i={4} title="Who it&rsquo;s for">
+      <Slide i={4} title="What the chain actually holds">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Obj
+            k="Vault"
+            v="Holds the money. The agent never owns it, and never owns the coins inside."
+          />
+          <Obj
+            k="Capsule"
+            v="The permission. No store ability, so it cannot be transferred, sold or wrapped. Access is by field, not by ownership."
+          />
+          <Obj
+            k="Permit"
+            v="One-shot authority to exceed a soft cap. No drop ability — execute_elevated takes it by value and destroys it. Replay is unrepresentable."
+          />
+          <Obj
+            k="ExecTicket"
+            v="A hot potato with no abilities at all. Cannot be stored, copied, or discarded. Only settle can destroy it."
+          />
+        </div>
+
+        <div className="panel-ink mt-6 w-full max-w-2xl p-5">
+          <p className="val text-xs leading-relaxed sm:text-sm">
+            begin_execute <span className="text-sky">→ the coin AND the ticket</span>
+            <br />
+            &nbsp;&nbsp;swap at any venue <span className="text-sky">— we import no DEX</span>
+            <br />
+            settle(ticket, proceeds) <span className="text-sky">→ checks the destination</span>
+          </p>
+        </div>
+
+        <p className="mt-5 max-w-2xl text-lg font-semibold">
+          A transaction holding that ticket is structurally incapable of finishing
+          unless the money lands on the right address. The agent isn&rsquo;t trusted not
+          to skim — a transaction where it skims cannot be built.
+        </p>
+      </Slide>
+
+      <Slide i={5} title="Nineteen asserts, every spend">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Group n="3" k="Who is asking" v="vault matches · claimed · holder == ctx.sender()" />
+          <Group n="6" k="Is it alive" v="not revoked · not surrendered · not paused by either party · within its dates" />
+          <Group n="1" k="Recurrence" v="windows not exhausted" />
+          <Group n="3" k="Soft caps" v="amount > 0 · per-action · per-window" tone="pending" />
+          <Group n="2" k="Hard caps" v="hard cap · total cap" tone="block" />
+          <Group n="3" k="Scope" v="pool by object id · slippage · beneficiary fixed at mint" />
+        </div>
+
+        <p className="mt-4 text-sm text-muted">
+          Plus one in <span className="val">settle</span> — the fill must beat the floor the
+          agent committed to — and three more on the permit path.
+        </p>
+
+        <div className="panel-tint mt-6 p-5">
+          <p className="text-lg leading-relaxed">
+            An approved escalation lifts the <b>soft</b> caps and only those.{" "}
+            <b className="text-block">Nothing lifts the hard cap</b> — not a permit, not the
+            issuer at 3am, not a compromised backend. That ceiling was set once, at mint, by
+            someone thinking clearly.
+          </p>
+        </div>
+      </Slide>
+
+      <Slide i={6} title="Who it&rsquo;s for">
         <div className="grid gap-4 sm:grid-cols-2">
           <Case
             k="Set it up for Mum"
@@ -196,7 +260,7 @@ export default function Deck() {
         </p>
       </Slide>
 
-      <Slide i={5} title="Bring your own agent">
+      <Slide i={7} title="Bring your own agent">
         <p className="max-w-2xl text-xl leading-relaxed text-muted">
           Every permission is also an <b className="text-ink">MCP server</b>. Paste one
           line into Claude Desktop or Cursor, restart, and that assistant holds a
@@ -232,7 +296,7 @@ export default function Deck() {
         </div>
       </Slide>
 
-      <Slide i={6} title="Backed by a human">
+      <Slide i={8} title="Backed by a human">
         <p className="max-w-2xl text-xl leading-relaxed text-muted">
           An agent can <b className="text-ink">ask</b> to exceed its limit. It can never
           approve.
@@ -258,7 +322,7 @@ export default function Deck() {
         </p>
       </Slide>
 
-      <Slide i={7} title="Three chains, three jobs">
+      <Slide i={9} title="Three chains, three jobs">
         <div className="grid gap-4 sm:grid-cols-3">
           <Sponsor
             k="Sui"
@@ -285,7 +349,7 @@ export default function Deck() {
         </p>
       </Slide>
 
-      <Slide i={8}>
+      <Slide i={10}>
         <h2 className="text-5xl leading-[0.95] font-bold tracking-tight sm:text-7xl">
           Anyone can build
           <br />
@@ -350,6 +414,39 @@ function Step({ n, k, v }: { n: string; k: string; v: string }) {
       </span>
       <p className="mt-3 text-lg font-bold">{k}</p>
       <p className="mt-1.5 text-sm leading-relaxed text-muted">{v}</p>
+    </div>
+  );
+}
+
+function Obj({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="panel p-4">
+      <p className="val text-base font-bold text-sui-deep">{k}</p>
+      <p className="mt-1.5 text-sm leading-relaxed text-muted">{v}</p>
+    </div>
+  );
+}
+
+/** A count and what it buys. The number does the talking. */
+function Group({
+  n,
+  k,
+  v,
+  tone,
+}: {
+  n: string;
+  k: string;
+  v: string;
+  tone?: "pending" | "block";
+}) {
+  const bg = tone === "block" ? "bg-block text-white" : tone === "pending" ? "bg-pending" : "bg-sui";
+  return (
+    <div className="panel flex h-full flex-col p-4">
+      <span className={`figure inline-grid h-9 w-9 place-items-center rounded-lg border-2 border-ink text-lg ${bg}`}>
+        {n}
+      </span>
+      <p className="mt-2.5 text-sm font-bold">{k}</p>
+      <p className="mt-1 text-xs leading-relaxed text-muted">{v}</p>
     </div>
   );
 }
