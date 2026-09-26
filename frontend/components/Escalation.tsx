@@ -68,20 +68,34 @@ export function Escalation({
   const load = useCallback(() => {
     fetch(`/api/intents/${label}/escalation`)
       .then((r) => r.json())
-      .then((d) => setPending(d.pending ?? null))
+      .then((d) => {
+        const next: Pending | null = d.pending ?? null;
+        // Replace only on a genuinely different request. Handing back an
+        // equal-but-new object on every poll re-triggers everything keyed
+        // to it — which is how the signed action changed underneath a
+        // widget the user was already scanning.
+        setPending((prev) =>
+          prev?.signalHash === next?.signalHash ? prev : next,
+        );
+      })
       .catch(() => {});
   }, [label]);
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 6000);
+    const t = setInterval(() => {
+      // Nothing may move while a proof is in flight.
+      if (open || busy) return;
+      load();
+    }, 6000);
     return () => clearInterval(t);
-  }, [load]);
+  }, [load, open, busy]);
 
   // A per-request action, so approving twice in a demo is never refused as
   // a repeat verification.
+  const signalHash = pending?.signalHash;
   useEffect(() => {
-    if (!pending) return;
+    if (!signalHash) return;
     fetch("/api/world/request", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -97,7 +111,7 @@ export function Escalation({
         setAction(d.action);
       })
       .catch(() => {});
-  }, [pending]);
+  }, [signalHash]);
 
   async function approve(proof: IDKitResult) {
     if (!pending) return;
@@ -110,7 +124,13 @@ export function Escalation({
       const v = await fetch("/api/world/verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ proof, action, signal: pending.signalHash }),
+        body: JSON.stringify({
+          proof,
+          // The action the proof was produced for, not whichever one this
+          // component happens to be holding now.
+          action: (proof as { action?: string }).action ?? action,
+          signal: pending.signalHash,
+        }),
       });
       const out = await v.json();
       if (!v.ok) throw new Error(out.error ?? "World rejected the proof");
