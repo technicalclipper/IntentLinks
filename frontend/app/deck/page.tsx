@@ -16,8 +16,8 @@ import { Badge, Copy } from "@/components/ui";
 
 const SLIDES = [
   "intentlink",
-  "the idea",
   "the problem",
+  "the idea",
   "the refusal",
   "the objects",
   "the asserts",
@@ -101,25 +101,18 @@ export default function Deck() {
         </p>
       </Slide>
 
-      <Slide i={1} title="The idea">
-        <p className="max-w-2xl text-2xl leading-snug font-semibold sm:text-3xl">
-          You write what an agent may do in plain English. You send a link. Whoever
-          opens it proves they&rsquo;re a human and plugs in whatever agent they like.
-        </p>
-        <div className="mt-10 grid gap-4 sm:grid-cols-3">
-          <Step n="1" k="Write" v="“Sell 0.02 SUI a day for 30 days, max 1% slippage, send the proceeds to Bob.”" />
-          <Step n="2" k="Send" v="A link, and a QR beside it. No wallet, no seed phrase, no gas for anyone." />
-          <Step n="3" k="Enforce" v="The limits aren’t in our code. They’re Move asserts on Sui." />
-        </div>
-        <p className="panel-ink mt-8 inline-block px-5 py-3 text-lg font-bold">
-          19 asserts. Every single spend.
-        </p>
-      </Slide>
+      <Slide i={1} title="The problem">
+        {/* The question, in the words someone would actually ask it. A
+            problem slide that states the answer first has skipped the only
+            part the audience already agrees with. */}
+        <h2 className="max-w-3xl text-3xl leading-tight font-bold tracking-tight sm:text-4xl">
+          How do you give an AI agent access to your funds{" "}
+          <span className="marker text-block">without handing over your master keys?</span>
+        </h2>
 
-      <Slide i={2} title="The problem">
-        <p className="max-w-2xl text-xl leading-relaxed text-muted">
-          Handing an agent money today is handing over the keys and hoping. You get a
-          valet who can drive anywhere — and a note on the dashboard asking nicely.
+        <p className="mt-5 max-w-2xl text-xl leading-relaxed text-muted">
+          Today you can&rsquo;t. You get a valet who can drive anywhere — and a note on
+          the dashboard asking nicely.
         </p>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -145,9 +138,23 @@ export default function Deck() {
           </div>
         </div>
 
-        <p className="mt-7 max-w-2xl text-lg">
-          A valet key. The car starts, the boot stays shut, and it isn&rsquo;t a promise —
-          it&rsquo;s the shape of the key.
+        <p className="panel-ink mt-7 inline-block px-5 py-3 text-lg font-bold">
+          We&rsquo;ve got you covered — it isn&rsquo;t a promise, it&rsquo;s the shape of the key.
+        </p>
+      </Slide>
+
+      <Slide i={2} title="The idea">
+        <p className="max-w-2xl text-2xl leading-snug font-semibold sm:text-3xl">
+          You write what an agent may do in plain English. You send a link. Whoever
+          opens it proves they&rsquo;re a human and plugs in whatever agent they like.
+        </p>
+        <div className="mt-10 grid gap-4 sm:grid-cols-3">
+          <Step n="1" k="Write" v="“Sell 0.02 SUI a day for 30 days, max 1% slippage, send the proceeds to Bob.”" />
+          <Step n="2" k="Send" v="A link, and a QR beside it. No wallet, no seed phrase, no gas for anyone." />
+          <Step n="3" k="Enforce" v="The limits aren’t in our code. They’re Move asserts on Sui." />
+        </div>
+        <p className="panel-ink mt-8 inline-block px-5 py-3 text-lg font-bold">
+          19 asserts. Every single spend.
         </p>
       </Slide>
 
