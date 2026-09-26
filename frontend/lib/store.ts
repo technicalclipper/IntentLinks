@@ -28,6 +28,16 @@ export interface IntentRecord {
   /** Plain address, server-side only — the public record carries a mask. */
   recipientEmail: string | null;
   issuerAddress: string;
+  /**
+   * The World session the issuer proved under at mint.
+   *
+   * A session nullifier is stable for one human across every proof in the
+   * session, so binding a later escalation to this same session is what
+   * makes "the same human who wrote the limit approved raising it" a
+   * check rather than an aspiration. Per-action nullifiers cannot do it:
+   * they differ by construction between two actions.
+   */
+  worldSessionId?: string | null;
   createdAt: number;
   /**
    * The agent's outstanding ask, if any.

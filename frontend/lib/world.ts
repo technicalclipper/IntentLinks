@@ -48,6 +48,9 @@ export interface WorldVerification {
   nullifier?: string;
   credential?: string;
   protocolVersion?: string;
+  /** Present on session proofs; the handle a later proof binds to. */
+  sessionId?: string;
+  isSession?: boolean;
   error?: string;
 }
 
@@ -56,7 +59,13 @@ interface ResponseItem {
   /** v3 hands back one hex string; v4 an array. */
   proof: string | string[];
   merkle_root?: string;
-  nullifier: string;
+  /** Uniqueness proofs. Scoped to (human, app, action). */
+  nullifier?: string;
+  /**
+   * Session proofs. [0] is the session nullifier — stable for one human
+   * across every proof in the session — and [1] the generated action.
+   */
+  session_nullifier?: string[];
   signal_hash?: string;
 }
 
@@ -116,13 +125,25 @@ export async function verifyWorldProof(
 
   // The action is signed into the RP context, so a proof produced for one
   // action cannot stand in for another.
-  if (r.action && r.action !== action) {
+  const isSession = Boolean(r.responses?.[0]?.session_nullifier);
+  if (!isSession && r.action && r.action !== action) {
     return { ok: false, error: `proof is for action "${r.action}", not "${action}"` };
   }
 
   const credential = r.responses?.[0];
-  if (!credential?.nullifier) {
+  if (!credential) {
     return { ok: false, error: "proof contains no credential response" };
+  }
+
+  /*
+   * A session proof carries `session_nullifier`, a uniqueness proof
+   * `nullifier`. Only the session one is comparable across two separate
+   * verifications by the same person, which is the entire reason to
+   * prefer it — see approve_escalation.
+   */
+  const nullifier = credential.session_nullifier?.[0] ?? credential.nullifier;
+  if (!nullifier) {
+    return { ok: false, error: "proof carries no nullifier" };
   }
 
   if (opts.expectSignal) {
@@ -152,7 +173,7 @@ export async function verifyWorldProof(
   const res = await fetch(VERIFY_URL, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ...r, action }),
+    body: JSON.stringify(isSession ? r : { ...r, action }),
   });
 
   const body = (await res.json().catch(() => ({}))) as {
@@ -175,9 +196,11 @@ export async function verifyWorldProof(
 
   return {
     ok: true,
-    nullifier: credential.nullifier,
+    nullifier,
     credential: credential.identifier,
     protocolVersion: r.protocol_version,
+    sessionId: (r as { session_id?: string }).session_id,
+    isSession: Boolean(credential.session_nullifier),
   };
 }
 

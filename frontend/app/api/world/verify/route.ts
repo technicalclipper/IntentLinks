@@ -28,6 +28,10 @@ export async function POST(request: Request) {
       nullifier: result.nullifier,
       credential: result.credential,
       protocolVersion: result.protocolVersion,
+      // The session handle, so a later proof can bind to the same session
+      // and yield the same nullifier.
+      sessionId: result.sessionId ?? null,
+      isSession: Boolean(result.isSession),
     });
   } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 400 });

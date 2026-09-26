@@ -67,11 +67,40 @@ export async function POST(request: Request) {
       );
     }
 
-    const { action, purpose, description } = (await request.json().catch(() => ({}))) as {
+    const { action, purpose, description, mode } = (await request
+      .json()
+      .catch(() => ({}))) as {
       action?: string;
       purpose?: string;
       description?: string;
+      mode?: "action" | "session";
     };
+
+    /*
+     * Session mode.
+     *
+     * A session proof carries no action at all — the RP signature simply
+     * omits the field — and yields a `session_nullifier` that is stable
+     * for one human across every proof in that session. That is the thing
+     * the per-action nullifier could never be: comparable between the mint
+     * and a later escalation, with no verification quota in the way.
+     *
+     * No action is minted here, because there is nothing to mint.
+     */
+    if (mode === "session") {
+      const s = signRequest({ signingKeyHex: key, ttl: 300 });
+      return Response.json({
+        mode: "session",
+        action: null,
+        rp_context: {
+          rp_id: rpId,
+          nonce: s.nonce,
+          created_at: s.createdAt,
+          expires_at: s.expiresAt,
+          signature: s.sig,
+        },
+      });
+    }
 
     let resolved = action;
     if (!resolved) {

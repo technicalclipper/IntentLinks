@@ -19,9 +19,11 @@ export async function POST(request: Request) {
       salt?: string;
       recipientEmail?: string | null;
       issuerAddress?: string;
+      worldSessionId?: string | null;
     };
 
-    const { vaultId, capsuleId, policy, policyHash, salt, issuerAddress } = body;
+    const { vaultId, capsuleId, policy, policyHash, salt, issuerAddress, worldSessionId } =
+      body;
     if (!vaultId || !capsuleId || !policy || !policyHash || !salt || !issuerAddress) {
       return Response.json({ error: "missing fields" }, { status: 400 });
     }
@@ -62,6 +64,7 @@ export async function POST(request: Request) {
       salt,
       recipientEmail: body.recipientEmail ?? null,
       issuerAddress,
+      worldSessionId: worldSessionId ?? null,
       createdAt: Date.now(),
     });
 

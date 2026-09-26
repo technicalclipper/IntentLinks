@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import {
   IDKitRequestWidget,
+  IDKitSessionWidget,
   deviceLegacy,
   orbLegacy,
   proofOfHuman,
   type IDKitResult,
+  type IDKitResultSession,
   type RpContext,
 } from "@worldcoin/idkit";
 import { Badge, Copy, Mono, Shell, Stat } from "@/components/ui";
@@ -30,6 +32,21 @@ const CREDENTIAL =
   ({ device: deviceLegacy, orb: orbLegacy, human: proofOfHuman } as const)[
     process.env.NEXT_PUBLIC_WORLD_CREDENTIAL ?? "human"
   ] ?? proofOfHuman;
+
+/**
+ * Session or per-action proofs.
+ *
+ * A session yields a nullifier stable for one human across every proof in
+ * it, which is the only way "the same human who set this limit approved
+ * raising it" can be checked at all — per-action nullifiers differ between
+ * two actions by construction, so comparing them always fails.
+ *
+ * Kept behind a flag because sessions are World ID v4 only, with no legacy
+ * fallback, and the legacy presets are what work today with this app's
+ * actions. Flip WORLD_MODE and the whole flow moves together; the working
+ * path stays exactly as it was.
+ */
+const SESSION_MODE = process.env.NEXT_PUBLIC_WORLD_MODE === "session";
 
 const EXAMPLES = [
   "Sell 0.02 SUI a day for 30 days, max 1% slippage, send the DUSD to bob@gmail.com",
@@ -68,6 +85,9 @@ export default function Create() {
   // Recorded on the capsule so escalation can prove it is the *same* human
   // who set the limit, not merely a human.
   const [issuerNullifier, setIssuerNullifier] = useState<string | null>(null);
+  // Recorded with the intent so an escalation can prove under the same
+  // session and produce a comparable nullifier.
+  const [worldSessionId, setWorldSessionId] = useState<string | null>(null);
   const [rp, setRp] = useState<RpContext | null>(null);
   // The server mints a fresh action per request, so a second
   // verification is never treated as a repeat of the first.
@@ -80,6 +100,7 @@ export default function Create() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        mode: SESSION_MODE ? "session" : "action",
         purpose: "issue",
         description: "Create an IntentLink permission",
       }),
@@ -113,18 +134,19 @@ export default function Create() {
     }
   }
 
-  async function onVerified(proof: IDKitResult) {
+  async function onVerified(proof: IDKitResult | IDKitResultSession) {
     setVerifying(true);
     setError(null);
     try {
       const res = await fetch("/api/world/verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ proof, action }),
+        body: JSON.stringify({ proof, action: SESSION_MODE ? undefined : action }),
       });
       const out = await res.json();
       if (!res.ok) throw new Error(out.error ?? "verification failed");
       setIssuerNullifier(out.nullifier);
+      setWorldSessionId(out.sessionId ?? null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -253,6 +275,7 @@ export default function Create() {
           salt,
           recipientEmail: c.recipientEmail,
           issuerAddress: session.address,
+          worldSessionId,
         }),
       });
       const out = await fin.json();
@@ -464,7 +487,7 @@ export default function Create() {
             <>
               <button
                 onClick={() => setWorldOpen(true)}
-                disabled={!rp || !action || verifying}
+                disabled={!rp || (!SESSION_MODE && !action) || verifying}
                 className="btn btn-primary w-full py-3.5"
               >
                 {verifying ? "Verifying…" : !rp ? "Preparing…" : "Verify with World & create →"}
@@ -473,12 +496,25 @@ export default function Create() {
                 Your proof is recorded on the capsule. It is what lets the agent ask
                 you — and only you — to exceed a limit.
               </p>
-              {rp && action && (
+              {/* A session has no action to carry, and the widget takes a
+                  constraint tree rather than a preset. */}
+              {rp && SESSION_MODE && (
+                <IDKitSessionWidget
+                  open={worldOpen}
+                  onOpenChange={setWorldOpen}
+                  app_id={APP_ID}
+                  rp_context={rp}
+                  action_description="Create an IntentLink permission"
+                  constraints={{ type: "proof_of_human" }}
+                  onSuccess={onVerified}
+                />
+              )}
+              {rp && action && !SESSION_MODE && (
                 <IDKitRequestWidget
                   open={worldOpen}
                   onOpenChange={setWorldOpen}
                   app_id={APP_ID}
-                  action={action!}
+                  action={action}
                   rp_context={rp}
                   allow_legacy_proofs
                   action_description="Create an IntentLink permission"

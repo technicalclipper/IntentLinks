@@ -2,10 +2,12 @@
 
 import {
   IDKitRequestWidget,
+  IDKitSessionWidget,
   deviceLegacy,
   orbLegacy,
   proofOfHuman,
   type IDKitResult,
+  type IDKitResultSession,
   type RpContext,
 } from "@worldcoin/idkit";
 import { useCallback, useEffect, useState } from "react";
@@ -18,6 +20,9 @@ const CREDENTIAL =
   (
     { device: deviceLegacy, orb: orbLegacy, human: proofOfHuman } as const
   )[process.env.NEXT_PUBLIC_WORLD_CREDENTIAL ?? "device"] ?? deviceLegacy;
+
+/** Sessions give a nullifier that is comparable across two verifications. */
+const SESSION_MODE = process.env.NEXT_PUBLIC_WORLD_MODE === "session";
 
 interface Pending {
   amount: string;
@@ -39,18 +44,25 @@ interface Pending {
  *                    signal bound to hash(capsule, amount, nonce). A stored
  *                    credential cannot be replayed, and a yes to 26 cannot
  *                    be stretched into a yes to 260.
- *   the nullifier  — the same human as at mint. INERT here, and the code
- *                    says so rather than pretending: nullifiers are scoped
- *                    per (user, app, action), and we mint a fresh action
- *                    per request because a World action permits one
- *                    verification per human and the v4 API exposes no way
- *                    to raise that. So the nullifier from this approval is
- *                    unrelated to the one recorded at mint by design, and
- *                    sending it aborted every approval with
+ *   the nullifier  — the same human as at mint, and whether this can be
+ *                    checked at all depends on how the proof was made.
+ *
+ *                    Per-action: it cannot. Nullifiers are scoped to
+ *                    (user, app, action) and we mint a fresh action per
+ *                    request — a World action allows one verification per
+ *                    human and the v4 API exposes no way to raise that —
+ *                    so the two are unrelated by construction and
+ *                    comparing them aborted every approval with
  *                    E_NOT_SAME_HUMAN. We send empty, which the contract
- *                    reads as "no evidence" and skips. A nullifier that
- *                    disagrees still aborts — absent evidence is
- *                    tolerated, contradictory evidence is not.
+ *                    reads as "no evidence" and skips.
+ *
+ *                    Session: it can. A session nullifier is stable for
+ *                    one human across every proof in the session, so
+ *                    proving under the session recorded at mint yields a
+ *                    directly comparable value and the check does real
+ *                    work. Either way a nullifier that *disagrees* always
+ *                    aborts: absent evidence is tolerated, contradictory
+ *                    evidence is not.
  *
  * The agent can reach none of these. It can put a request on chain and
  * wait, which is the whole of its authority here.
@@ -67,6 +79,9 @@ export function Escalation({
   onApproved: () => void;
 }) {
   const [pending, setPending] = useState<Pending | null>(null);
+  // The session the issuer proved under at mint. Binding to it is what
+  // makes the returned nullifier comparable to the capsule's.
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [rp, setRp] = useState<RpContext | null>(null);
   const [action, setAction] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -86,6 +101,7 @@ export function Escalation({
         setPending((prev) =>
           prev?.signalHash === next?.signalHash ? prev : next,
         );
+        setSessionId((prev) => (prev === d.worldSessionId ? prev : d.worldSessionId ?? null));
       })
       .catch(() => {});
   }, [label]);
@@ -109,6 +125,7 @@ export function Escalation({
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        mode: SESSION_MODE ? "session" : "action",
         purpose: "escalate",
         description: "Approve an agent going past its limit",
       }),
@@ -122,7 +139,7 @@ export function Escalation({
       .catch(() => {});
   }, [signalHash]);
 
-  async function approve(proof: IDKitResult) {
+  async function approve(proof: IDKitResult | IDKitResultSession) {
     if (!pending) return;
     setBusy(true);
     setError(null);
@@ -137,7 +154,7 @@ export function Escalation({
           proof,
           // The action the proof was produced for, not whichever one this
           // component happens to be holding now.
-          action: (proof as { action?: string }).action ?? action,
+          action: SESSION_MODE ? undefined : (proof as { action?: string }).action ?? action,
           signal: pending.signalHash,
         }),
       });
@@ -153,13 +170,12 @@ export function Escalation({
           ttlMs: "600000",
           signalHash: pending.signalHash,
           /*
-           * Deliberately empty — see the note above. Passing out.nullifier
-           * here compares a nullifier from *this* action against one
-           * recorded under the mint action, which cannot match and aborts
-           * with 30. Restore it the day a single action can be verified
-           * against twice.
+           * Only when it is actually comparable. A session nullifier can
+           * be checked against the one recorded at mint; a per-action one
+           * is a different number by construction and would abort with 30
+           * on every honest approval.
            */
-          approverNullifier: "",
+          approverNullifier: out.isSession ? (out.nullifier ?? "") : "",
         },
         session,
       );
@@ -209,7 +225,7 @@ export function Escalation({
 
       <button
         onClick={() => setOpen(true)}
-        disabled={busy || !rp || !action}
+        disabled={busy || !rp || (!SESSION_MODE && !action)}
         className="btn btn-primary btn-sm mt-4"
       >
         {busy ? "Approving…" : !rp ? "Preparing…" : "Verify with World & approve"}
@@ -220,7 +236,22 @@ export function Escalation({
         World proves a human is here now, so a stored credential cannot stand in.
       </p>
 
-      {rp && action && (
+      {rp && SESSION_MODE && (
+        <IDKitSessionWidget
+          open={open}
+          onOpenChange={setOpen}
+          app_id={APP_ID}
+          rp_context={rp}
+          /* Prove under the session from mint, so the nullifier lines up
+             with the one on the capsule. */
+          existing_session_id={(sessionId ?? undefined) as `session_${string}` | undefined}
+          action_description={`Approve ${sui} SUI, once`}
+          constraints={{ type: "proof_of_human", signal: pending.signalHash }}
+          onSuccess={approve}
+        />
+      )}
+
+      {rp && action && !SESSION_MODE && (
         <IDKitRequestWidget
           open={open}
           onOpenChange={setOpen}

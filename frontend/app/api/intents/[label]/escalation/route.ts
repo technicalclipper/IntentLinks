@@ -18,9 +18,14 @@ export async function GET(
   if (!record) return Response.json({ error: "not found" }, { status: 404 });
 
   const e = record.escalation;
-  if (!e || e.approvedAt) return Response.json({ pending: null });
+  if (!e || e.approvedAt) {
+    return Response.json({ pending: null, worldSessionId: record.worldSessionId ?? null });
+  }
 
   return Response.json({
+    // Proving under the session the issuer used at mint is what makes the
+    // returned nullifier comparable to the one on the capsule.
+    worldSessionId: record.worldSessionId ?? null,
     pending: {
       amount: e.amount,
       reason: e.reason,
