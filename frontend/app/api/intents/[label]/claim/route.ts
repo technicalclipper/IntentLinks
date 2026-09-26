@@ -5,7 +5,8 @@ import { decodeAbort } from "@/lib/chain/errors";
 import { readCapsule } from "@/lib/chain/read";
 import { claim } from "@/lib/chain/tx";
 import { setStatus } from "@/lib/ens";
-import { getIntent } from "@/lib/store";
+import { connectionToken, delegatedAddress, isSuiAddress, type AgentMode } from "@/lib/agent/byoa";
+import { getIntent, setAgent } from "@/lib/store";
 import { recipientHash, verifyGoogleIdToken } from "@/lib/zklogin/server";
 import { verifyWorldProof } from "@/lib/world";
 import type { IDKitResult } from "@worldcoin/idkit-core";
@@ -41,8 +42,41 @@ export async function POST(
       action?: string;
       idToken?: string;
       principal?: string;
+      agentMode?: AgentMode;
+      agentAddress?: string;
     };
     const { worldProof, action, idToken, principal } = body;
+
+    /*
+     * Who will hold this capability.
+     *
+     * `holder` is the only address the capsule will ever execute for, and
+     * nothing in the contract says it has to be ours — we were simply the
+     * only thing assuming it. The choice is made once, here, because a
+     * capsule can be claimed exactly once.
+     *
+     *   managed   — our agent, as before.
+     *   delegated — a key derived for this capsule alone, driven over MCP
+     *               by whatever agent the recipient connects.
+     *   external  — an address they name; their agent signs for itself and
+     *               we never hold a key at all.
+     */
+    const mode: AgentMode = body.agentMode ?? "managed";
+    let holder: string;
+    if (mode === "external") {
+      const given = (body.agentAddress ?? "").trim();
+      if (!isSuiAddress(given)) {
+        return Response.json(
+          { error: "that is not a Sui address — expected 0x followed by 64 hex characters" },
+          { status: 400 },
+        );
+      }
+      holder = given;
+    } else if (mode === "delegated") {
+      holder = delegatedAddress(record.capsuleId);
+    } else {
+      holder = agentAddress();
+    }
 
     if (!worldProof) return Response.json({ error: "World verification is required" }, { status: 400 });
     if (!idToken || !principal) {
@@ -90,7 +124,7 @@ export async function POST(
       verifierCapId: VERIFIER_CAP_ID!,
       capsuleId: record.capsuleId,
       principal,
-      holder: agentAddress(),
+      holder,
       recipientHash: boundHash,
     });
     tx.setSender(sponsorKeypair().toSuiAddress());
@@ -109,11 +143,19 @@ export async function POST(
     // bound on Sui, and that is the half that enforces anything.
     await setStatus(label, "active").catch(() => {});
 
+    // Remember which way it was claimed, so every later screen can say
+    // whose agent this is rather than implying it is always ours.
+    setAgent(label, mode, holder);
+
     return Response.json({
       success: true,
       digest: r.digest,
       principal,
-      holder: agentAddress(),
+      holder,
+      agentMode: mode,
+      // Only a delegated capability has something to connect to. An
+      // external agent already holds its own key and needs nothing here.
+      connectionToken: mode === "delegated" ? connectionToken(record.capsuleId) : null,
       nullifier: world.nullifier,
       credential: world.credential,
     });

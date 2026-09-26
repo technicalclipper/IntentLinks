@@ -38,6 +38,15 @@ export interface IntentRecord {
    * they differ by construction between two actions.
    */
   worldSessionId?: string | null;
+  /**
+   * Whose agent holds this, decided once at redemption.
+   *
+   * Recorded so the interface can say "your agent" rather than implying
+   * every capability is driven by ours. The chain is authoritative — the
+   * capsule's `holder` is the fact — and this is the label for it.
+   */
+  agentMode?: "managed" | "delegated" | "external";
+  agentAddress?: string;
   createdAt: number;
   /**
    * The agent's outstanding ask, if any.
@@ -80,6 +89,18 @@ export function putIntent(record: IntentRecord): void {
 
 export function getIntent(label: string): IntentRecord | null {
   return load()[label] ?? null;
+}
+
+export function setAgent(
+  label: string,
+  agentMode: IntentRecord["agentMode"],
+  agentAddress: string,
+): void {
+  const all = load();
+  const r = all[label];
+  if (!r) return;
+  all[label] = { ...r, agentMode, agentAddress };
+  save(all);
 }
 
 export function setEscalation(

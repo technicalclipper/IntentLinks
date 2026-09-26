@@ -1,3 +1,4 @@
+import type { Signer } from "@mysten/sui/cryptography";
 import { Transaction } from "@mysten/sui/transactions";
 import {
   agentAddress,
@@ -6,6 +7,7 @@ import {
   suiClient,
 } from "../chain/client";
 import { Beneficiary, DEMO_POOL_ID, SkipReason } from "../chain/config";
+import { executeSponsored } from "../chain/sponsor";
 import { decodeAbort } from "../chain/errors";
 import { readCapsule } from "../chain/read";
 import { executeSwap, logSkip } from "../chain/tx";
@@ -143,6 +145,16 @@ export async function attempt(
   vaultId: string,
   p: Proposal,
   opts: { label: string; permitId?: string } = { label: "swap" },
+  /**
+   * Who signs, when it is not our own agent.
+   *
+   * A capsule executes for exactly one address — its holder — so a
+   * capability handed to someone else's agent is driven by their key, not
+   * ours. Passing the signer in is the whole of what "bring your own
+   * agent" costs on this side: everything below is identical, because the
+   * limits were never about which program was asking.
+   */
+  signer?: Signer,
 ): Promise<AgentEvent[]> {
   const events: AgentEvent[] = [];
   const c = await readCapsule(capsuleId);
@@ -174,11 +186,23 @@ export async function attempt(
     slippageBps: p.slippageBps,
     permitId: opts.permitId,
   });
-  tx.setSender(agentAddress());
-  tx.setGasBudget(200_000_000);
-
+  /*
+   * A delegated agent holds no SUI and should never have to.
+   *
+   * Our own agent funds its own gas, but a key derived for one capability
+   * starts empty, and "top up this address before your agent can act"
+   * would undo the whole point of pasting one line of config. The gas
+   * station pays: the agent signs the action, the sponsor signs for the
+   * coin, and the chain sees two signatures on identical bytes.
+   */
   try {
-    const r = await signAndExecute(tx, agentKeypair());
+    const r = signer
+      ? await executeSponsored(tx, signer, 200_000_000n)
+      : await (async () => {
+          tx.setSender(agentAddress());
+          tx.setGasBudget(200_000_000);
+          return signAndExecute(tx, agentKeypair());
+        })();
     if (r.success) {
       events.push({
         kind: "executed",

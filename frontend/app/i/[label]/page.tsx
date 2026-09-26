@@ -9,6 +9,7 @@ import {
   type RpContext,
 } from "@worldcoin/idkit";
 import { use, useEffect, useState } from "react";
+import { ConnectAgent } from "@/components/ConnectAgent";
 import { HistoryPanel } from "@/components/History";
 import { Badge, Copy, Field, Meter, Mono, Shell, Stat } from "@/components/ui";
 import { useZkLogin } from "@/lib/zklogin/useZkLogin";
@@ -91,6 +92,13 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
   // never treated as a repeat of the first.
   const [action, setAction] = useState<string | null>(null);
   const [worldOpen, setWorldOpen] = useState(false);
+  /*
+   * Who will hold this capability. Decided before redemption because a
+   * capsule can be claimed exactly once, and `holder` is set there.
+   */
+  const [agentMode, setAgentMode] = useState<"managed" | "delegated" | "external">("managed");
+  const [ownAgent, setOwnAgent] = useState("");
+  const [connect, setConnect] = useState<string | null>(null);
 
   // v4 proof requests must be signed by the relying party, so the browser
   // asks our server for a signed context before it can open the widget.
@@ -141,6 +149,8 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
           action,
           idToken: session.idToken,
           principal: session.address,
+          agentMode,
+          agentAddress: ownAgent,
         }),
       });
       const out = await res.json();
@@ -151,6 +161,8 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
         setError(out.message ?? out.error ?? "could not redeem");
       } else {
         setClaimed(true);
+        // A delegated capability comes back with something to plug in.
+        if (out.connectionToken) setConnect(out.connectionToken);
       }
     } catch (e) {
       setError((e as Error).message);
@@ -367,10 +379,51 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
             <p className="mt-1 text-sm text-muted">
               Verify with World so a forwarded copy cannot be claimed twice.
             </p>
+
+            {/* Chosen before redemption, because a capsule is claimed once
+                and `holder` — the only address it will execute for — is
+                set in that same transaction. */}
+            <p className="mt-5 text-xs tracking-widest text-muted uppercase">
+              Who will act on this?
+            </p>
+            <div className="mt-2 space-y-2">
+              <Choice
+                on={agentMode === "managed"}
+                onSelect={() => setAgentMode("managed")}
+                title="IntentLink's agent"
+                note="Ours. Starts immediately, nothing to install."
+              />
+              <Choice
+                on={agentMode === "delegated"}
+                onSelect={() => setAgentMode("delegated")}
+                title="My own AI, over MCP"
+                note="Claude Desktop, Cursor, anything that speaks MCP. One line of config, no keys to handle."
+              />
+              <Choice
+                on={agentMode === "external"}
+                onSelect={() => setAgentMode("external")}
+                title="My agent signs for itself"
+                note="You give its Sui address. We never hold a key."
+              >
+                <input
+                  value={ownAgent}
+                  onChange={(e) => setOwnAgent(e.target.value)}
+                  placeholder="0x… your agent's Sui address"
+                  className="field val mt-3 text-xs"
+                  spellCheck={false}
+                />
+              </Choice>
+            </div>
+
             <button
               onClick={() => setWorldOpen(true)}
-              disabled={claiming || !rp || !action}
-              className="btn btn-primary mt-4"
+              disabled={
+                claiming ||
+                !rp ||
+                !action ||
+                (agentMode === "external" && !/^0x[0-9a-fA-F]{64}$/.test(ownAgent.trim()))
+              }
+              className="btn btn-primary mt-5"
             >
               {claiming ? "Redeeming…" : !rp ? "Preparing…" : "Verify with World to redeem"}
             </button>
@@ -393,12 +446,56 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
         )}
       </div>
 
+      {/* Only a delegated capability has anything to plug in — an external
+          agent already holds its own key. */}
+      {connect && <ConnectAgent token={connect} label={label} name={intent.name} />}
+
       {error && (
         <p className="pop panel mt-4 border-block bg-block p-3 text-sm font-semibold text-white">
           {error}
         </p>
       )}
     </Shell>
+  );
+}
+
+/** A radio that is legible without relying on a native control's styling. */
+function Choice({
+  on,
+  onSelect,
+  title,
+  note,
+  children,
+}: {
+  on: boolean;
+  onSelect: () => void;
+  title: string;
+  note: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div
+      onClick={onSelect}
+      className={`cursor-pointer rounded-xl border-2 p-3 transition ${
+        on ? "border-ink bg-sky shadow-[3px_3px_0_0_var(--color-ink)]" : "border-line"
+      }`}
+    >
+      <div className="flex items-start gap-2.5">
+        <span
+          aria-hidden
+          className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border-2 border-ink ${
+            on ? "bg-ink" : "bg-panel"
+          }`}
+        >
+          {on && <span className="h-1.5 w-1.5 rounded-full bg-paper" />}
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">{title}</p>
+          <p className="mt-0.5 text-xs text-muted">{note}</p>
+        </div>
+      </div>
+      {on && children}
+    </div>
   );
 }
 
