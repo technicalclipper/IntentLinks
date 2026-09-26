@@ -182,6 +182,10 @@ export function Escalation({
       if (res.abort) throw new Error(res.abort.message);
       if (!res.success) throw new Error(res.error ?? "could not approve");
 
+      // Close the ask server-side too, or a refresh offers to approve the
+      // same request again and mints a second permit.
+      await fetch(`/api/intents/${label}/escalation`, { method: "POST" }).catch(() => {});
+
       setDone(true);
       setPending(null);
       onApproved();

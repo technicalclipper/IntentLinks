@@ -1,4 +1,4 @@
-import { getIntent } from "@/lib/store";
+import { getIntent, setEscalation } from "@/lib/store";
 
 /**
  * The agent's outstanding ask, for the issuer's page to render.
@@ -34,4 +34,29 @@ export async function GET(
       requestedAt: e.requestedAt,
     },
   });
+}
+
+/**
+ * Mark the ask as answered.
+ *
+ * Purely the local index catching up with the chain. Clearing it grants
+ * nothing and forging it takes nothing away — the Permit either exists as
+ * an object owned by the agent or it does not, and execute_elevated
+ * consumes it by value either way.
+ *
+ * Without this the card reappears on refresh and a second approval mints
+ * a second permit, which is a real way to hand an agent twice what you
+ * meant to.
+ */
+export async function POST(
+  _request: Request,
+  { params }: { params: Promise<{ label: string }> },
+) {
+  const { label } = await params;
+  const record = getIntent(label);
+  if (!record) return Response.json({ error: "not found" }, { status: 404 });
+  if (!record.escalation) return Response.json({ ok: true });
+
+  setEscalation(label, { ...record.escalation, approvedAt: Date.now() });
+  return Response.json({ ok: true });
 }
