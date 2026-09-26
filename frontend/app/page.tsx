@@ -22,6 +22,9 @@ export default function Home() {
         right={
           session ? (
             <>
+              <a href="/deck" className="btn btn-sm">
+                Deck
+              </a>
               <a href="/mine" className="btn btn-sm">
                 Your intents
               </a>
@@ -30,9 +33,14 @@ export default function Home() {
               </a>
             </>
           ) : (
-            <button onClick={signIn} disabled={loading} className="btn btn-sm btn-primary">
-              {loading ? "Redirecting…" : "Sign in"}
-            </button>
+            <>
+              <a href="/deck" className="btn btn-sm">
+                Deck
+              </a>
+              <button onClick={signIn} disabled={loading} className="btn btn-sm btn-primary">
+                {loading ? "Redirecting…" : "Sign in"}
+              </button>
+            </>
           )
         }
       />
