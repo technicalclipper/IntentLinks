@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useCallback, useRef, useState } from "react";
+import { Badge, Copy, Shell } from "@/components/ui";
 
 interface Event {
   kind: "propose" | "engine" | "executed" | "blocked" | "skipped" | "info";
@@ -70,92 +71,97 @@ export default function Console({ params }: { params: Promise<{ label: string }>
   const executed = events.filter((e) => e.kind === "executed").length;
 
   return (
-    <main className="relative min-h-dvh overflow-hidden p-6">
-      <div className="grid-bg grid-fade pointer-events-none absolute inset-0" />
-
-      <div className="relative mx-auto max-w-2xl pt-14 pb-24">
-        <a href={`/i/${label}`} className="val text-sm text-accent">
-          [→]
+    <Shell
+      width="max-w-2xl"
+      nav={
+        <a href={`/i/${label}`} className="btn btn-sm">
+          ← Intent
         </a>
+      }
+    >
+      <span className="badge bg-sun">live · agent vs chain</span>
 
-        <h1 className="mt-8 text-5xl leading-[0.95] tracking-tight">
-          Watch it
-          <br />
-          <span className="text-accent">get refused.</span>
-        </h1>
-        <p className="mt-6 max-w-md leading-relaxed text-muted">
-          The agent proposes; the chain decides. Nothing below depends on the
-          agent behaving itself.
-        </p>
+      <h1 className="mt-4 text-4xl leading-[0.95] font-bold tracking-tight sm:text-5xl">
+        Watch it
+        <br />
+        <span className="marker text-block">get refused.</span>
+      </h1>
+      <p className="mt-5 max-w-md leading-relaxed text-muted">
+        The agent proposes; the chain decides. Nothing below depends on the agent
+        behaving itself.
+      </p>
 
-        <button
-          onClick={run}
-          disabled={running}
-          className="mt-8 w-full border border-ink bg-ink px-5 py-3.5 text-paper disabled:opacity-30"
-        >
-          {running ? "Running…" : events.length ? "Run again" : "Run the agent →"}
-        </button>
+      <button onClick={run} disabled={running} className="btn btn-primary mt-7 w-full py-3.5">
+        {running ? "Running…" : events.length ? "Run again ↻" : "Run the agent →"}
+      </button>
 
-        {/* Driving it by hand, for when a judge asks "what if it tries X". */}
-        <p className="mt-8 text-xs tracking-widest text-muted uppercase">
-          Or trigger one
-        </p>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {[
-            ["within", "Within the limit"],
-            ["over", "Past the daily limit"],
-            ["wrongPool", "Unapproved pool"],
-            ["keepProceeds", "Keep the proceeds"],
-            ["decline", "Decline to trade"],
-          ].map(([k, labelText]) => (
-            <button
-              key={k}
-              onClick={() => step(k)}
-              disabled={running}
-              className="panel px-3 py-2.5 text-xs transition hover:border-ink disabled:opacity-30"
-            >
-              {labelText}
-            </button>
-          ))}
-        </div>
-
-        {events.length > 0 && (
-          <div className="panel mt-8">
-            <div className="flex items-center justify-between border-b border-line px-5 py-3">
-              <p className="val text-xs text-muted">{label}</p>
-              <p className="val text-xs">
-                <span className="text-pass">{executed} executed</span>
-                <span className="text-muted"> · </span>
-                <span className="text-block">{blocked} refused</span>
-              </p>
-            </div>
-
-            <div className="divide-y divide-line">
-              {events.map((e, i) => (
-                <Line key={i} e={e} />
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div ref={endRef} />
-
-        {events.length > 0 && !running && (
-          <p className="mt-6 text-xs leading-relaxed text-muted">
-            Every refusal above is a Move <span className="val">assert!</span> aborting the
-            transaction. The agent could not have proceeded regardless of what it
-            intended, what our backend told it, or what it had been convinced of.
-          </p>
-        )}
+      {/* Driving it by hand, for when a judge asks "what if it tries X". */}
+      <p className="mt-8 text-xs tracking-widest text-muted uppercase">Or trigger one</p>
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {(
+          [
+            ["within", "Within the limit", "pass"],
+            ["over", "Past the daily limit", "block"],
+            ["wrongPool", "Unapproved pool", "block"],
+            ["keepProceeds", "Keep the proceeds", "block"],
+            ["decline", "Decline to trade", "pending"],
+          ] as const
+        ).map(([k, labelText, tone]) => (
+          <button
+            key={k}
+            onClick={() => step(k)}
+            disabled={running}
+            className="btn btn-sm justify-start gap-2 py-2.5 text-left"
+          >
+            <span
+              aria-hidden
+              className={`inline-block h-2 w-2 shrink-0 rounded-full border border-ink ${
+                tone === "pass" ? "bg-pass" : tone === "block" ? "bg-block" : "bg-pending"
+              }`}
+            />
+            {labelText}
+          </button>
+        ))}
       </div>
-    </main>
+
+      {events.length > 0 && (
+        <div className="panel mt-8 overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-ink bg-sky px-5 py-3">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="val text-xs font-semibold">{label}</span>
+              <Copy value={label} label="label" />
+            </span>
+            <span className="flex gap-2">
+              <Badge tone="pass">{executed} executed</Badge>
+              <Badge tone="block">{blocked} refused</Badge>
+            </span>
+          </div>
+
+          <div className="divide-y-2 divide-line">
+            {events.map((e, i) => (
+              <Line key={i} e={e} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div ref={endRef} />
+
+      {events.length > 0 && !running && (
+        <p className="mt-6 text-xs leading-relaxed text-muted">
+          Every refusal above is a Move <span className="val font-semibold">assert!</span>{" "}
+          aborting the transaction. The agent could not have proceeded regardless of what it
+          intended, what our backend told it, or what it had been convinced of.
+        </p>
+      )}
+    </Shell>
   );
 }
 
 function Line({ e }: { e: Event }) {
   if (e.kind === "info") {
     return (
-      <div className="row-in px-5 py-3">
+      <div className="row-in bg-paper px-5 py-3">
         <p className="text-xs leading-relaxed text-muted">{e.text}</p>
       </div>
     );
@@ -166,7 +172,7 @@ function Line({ e }: { e: Event }) {
       <div className="row-in px-5 py-3">
         <p className="text-sm">
           <span className="text-muted">proposes </span>
-          <span className="val">{e.text}</span>
+          <span className="val font-semibold">{e.text}</span>
           <span className="val text-muted"> · {e.amount}</span>
         </p>
         {e.meta && <p className="val mt-0.5 text-xs text-muted">{e.meta}</p>}
@@ -186,24 +192,31 @@ function Line({ e }: { e: Event }) {
 
   const tone =
     e.kind === "executed" ? "text-pass" : e.kind === "blocked" ? "text-block" : "text-pending";
-  const mark = e.kind === "executed" ? "⛓" : e.kind === "blocked" ? "⨯" : "◇";
+  const mark = e.kind === "executed" ? "✓" : e.kind === "blocked" ? "✕" : "◇";
 
   return (
-    <div className={`row-in stripe flex items-baseline gap-4 px-5 py-3.5 ${tone}`}>
-      <span className="val text-xs">{mark}</span>
+    <div className={`row-in stripe flex items-baseline gap-3 px-5 py-3.5 ${tone}`}>
+      <span className="val text-sm font-bold" aria-hidden>
+        {mark}
+      </span>
       <div className="min-w-0 flex-1">
-        <p className="val text-sm text-ink">
+        <p className="val text-sm font-semibold text-ink">
           {e.kind === "executed" && `settled · ${e.amountIn}`}
           {e.kind === "blocked" && "nothing moved"}
           {e.kind === "skipped" && e.reason}
         </p>
-        <p className="mt-0.5 text-xs text-muted">
-          {e.kind === "executed" && e.digest?.slice(0, 16)}
+        <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
+          {e.kind === "executed" && e.digest && (
+            <>
+              <span className="val truncate">{e.digest.slice(0, 20)}…</span>
+              <Copy value={e.digest} label="digest" />
+            </>
+          )}
           {e.kind === "blocked" && e.message}
           {e.kind === "skipped" && "agent-attested · not enforced"}
         </p>
       </div>
-      <span className="val shrink-0 text-[10px] tracking-wide">
+      <span className="val shrink-0 text-[10px] font-bold tracking-wide">
         {e.kind === "executed" ? "EXECUTED" : e.kind === "blocked" ? e.code : "SKIPPED"}
       </span>
     </div>

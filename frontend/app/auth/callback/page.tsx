@@ -1,5 +1,7 @@
 "use client";
 
+import { Badge, Mono } from "@/components/ui";
+
 import { useEffect, useRef, useState } from "react";
 import {
   extendedPublicKey,
@@ -84,12 +86,14 @@ export default function AuthCallback() {
   }, []);
 
   return (
-    <main className="min-h-dvh flex items-center justify-center p-6">
+    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden p-6">
+      <div className="glow pointer-events-none absolute inset-0 -z-10" />
+      <div className="grid-bg grid-fade pointer-events-none absolute inset-0 -z-10" />
       <div className="panel w-full max-w-md p-8">
         {phase === "working" && (
           <>
-            <p className="text-sm text-muted">Signing you in</p>
-            <p className="mt-2 text-2xl">{detail}…</p>
+            <Badge tone="pending">signing you in</Badge>
+            <p className="waiting mt-3 text-2xl font-bold tracking-tight">{detail}…</p>
             <p className="mt-6 text-xs text-muted">
               Proof generation takes a few seconds the first time.
             </p>
@@ -98,9 +102,13 @@ export default function AuthCallback() {
 
         {phase === "done" && (
           <>
-            <p className="text-sm text-pass">Signed in</p>
-            <p className="mt-2 text-sm text-muted">Your Sui address</p>
-            <p className="val mt-1 text-sm break-all">{address}</p>
+            <Badge tone="pass">signed in</Badge>
+            <p className="mt-3 text-xs tracking-widest text-muted uppercase">
+              Your Sui address
+            </p>
+            <div className="mt-1.5">
+              <Mono value={address ?? ""} chars={10} label="address" />
+            </div>
             <p className="mt-6 text-xs text-muted">
               No wallet, no seed phrase, no gas.
             </p>
@@ -109,9 +117,9 @@ export default function AuthCallback() {
 
         {phase === "failed" && (
           <>
-            <p className="text-sm text-block">Sign-in failed</p>
+            <Badge tone="block">sign-in failed</Badge>
             <p className="mt-2 text-sm">{detail}</p>
-            <a href="/" className="mt-6 inline-block text-sm underline">
+            <a href="/" className="btn mt-6">
               Start again
             </a>
           </>

@@ -1,31 +1,56 @@
 @import "tailwindcss";
 
 /*
-  The interface should read as instrumentation, not as an app that helps you.
-  Monochrome until something passes, blocks, or waits — colour only ever
-  means state, which is what makes a refused transaction land.
+  IntentLink's look, in one sentence: Sui's deep-ocean blue, drawn with a
+  thick pen.
+
+  The product is an instrument that refuses things, so the earlier version
+  was deliberately monochrome — colour only ever meant state. That was
+  right about state and wrong about everything else: it made a product with
+  genuinely delightful mechanics look like a spreadsheet.
+
+  So blue is now structure, and state keeps its own palette. Nothing is
+  green unless it passed, red unless it was refused, amber unless it is
+  waiting. Blue is never a status — it is just the room the statuses live
+  in, which means the two can never be confused.
+
+  Borders are thick and shadows are hard and offset. Limits should look
+  like limits: something with an edge you could knock on.
 */
 @theme {
-  --color-ink: #0a0a0b;
-  --color-paper: #fafaf8;
-  --color-muted: #6b6b70;
-  --color-line: #e4e4e1;
+  /* --- structure ------------------------------------------------ */
+  /* Near-black with the blue left in. Every border and most type. */
+  --color-ink: #06182e;
+  /* Sui's blue. The brand, the links, the things you press. */
+  --color-sui: #4da2ff;
+  --color-sui-deep: #0a65c4;
+  --color-sky: #bfe0ff;
+  --color-paper: #e9f2fd;
   --color-panel: #ffffff;
+  --color-muted: #55708c;
+  --color-line: #c2dbf3;
 
-  /* state, and nothing else */
-  --color-pass: #00875a;
-  --color-block: #d93025;
-  --color-pending: #b8860b;
-  --color-accent: #f0a830;
+  /* Playful seconds. Used sparingly, never to mean status. */
+  --color-lilac: #b6a6ff;
+  --color-sun: #ffd84d;
 
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  /* --- state, and nothing else ---------------------------------- */
+  --color-pass: #00b377;
+  --color-block: #ff4d4d;
+  --color-pending: #f5a524;
+  /* Kept as an alias so older markup keeps meaning "the brand colour". */
+  --color-accent: #0a65c4;
 
-  --radius-none: 0px;
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 :root {
   color-scheme: light;
+  /* One shadow, one offset, everywhere. Consistency is most of the effect. */
+  --brut: 4px 4px 0 0 var(--color-ink);
+  --brut-lg: 6px 6px 0 0 var(--color-ink);
+  --brut-sm: 2px 2px 0 0 var(--color-ink);
 }
 
 body {
@@ -33,11 +58,13 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  /* Long words here are addresses and object ids. */
+  overflow-wrap: break-word;
 }
 
 /*
   Every number on screen is a constraint, so values are monospaced and prose
-  is not. This single rule does most of the design work.
+  is not. This single rule still does most of the design work.
 */
 .val {
   font-family: var(--font-mono);
@@ -45,15 +72,150 @@ body {
   letter-spacing: -0.01em;
 }
 
-/* Hard edges. Limits should look like limits. */
+/* Numbers that carry weight — caps, ceilings, the figures a person checks. */
+.figure {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  font-weight: 600;
+}
+
+/* --- surfaces ---------------------------------------------------- */
+
 .panel {
   background: var(--color-panel);
-  border: 1px solid var(--color-line);
+  border: 2px solid var(--color-ink);
+  border-radius: 14px;
+  box-shadow: var(--brut);
+}
+
+/* A panel that should sit back — grouped detail, not a headline. */
+.panel-flat {
+  background: var(--color-panel);
+  border: 2px solid var(--color-line);
+  border-radius: 14px;
+}
+
+.panel-tint {
+  background: color-mix(in srgb, var(--color-sui) 10%, #fff);
+  border: 2px solid var(--color-ink);
+  border-radius: 14px;
+  box-shadow: var(--brut);
+}
+
+/* The one element allowed to shout. */
+.panel-ink {
+  background: var(--color-ink);
+  color: var(--color-paper);
+  border: 2px solid var(--color-ink);
+  border-radius: 14px;
+  box-shadow: var(--brut);
 }
 
 .rule {
   border-color: var(--color-line);
 }
+
+/* --- controls ---------------------------------------------------- */
+
+/*
+  Buttons physically depress. It is a small thing that makes an interface
+  feel built rather than rendered, and it costs two lines.
+*/
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 2px solid var(--color-ink);
+  border-radius: 10px;
+  padding: 0.6rem 1.1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  background: var(--color-panel);
+  color: var(--color-ink);
+  box-shadow: var(--brut-sm);
+  cursor: pointer;
+  transition:
+    transform 90ms ease,
+    box-shadow 90ms ease,
+    background 120ms ease;
+}
+.btn:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: var(--brut);
+}
+.btn:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 0 var(--color-ink);
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.btn:focus-visible {
+  outline: 3px solid var(--color-sui);
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background: var(--color-sui);
+  color: var(--color-ink);
+}
+.btn-ink {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+.btn-danger {
+  background: var(--color-block);
+  color: #fff;
+}
+.btn-sm {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.75rem;
+  border-radius: 8px;
+}
+
+/* --- badges ------------------------------------------------------ */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 2px solid var(--color-ink);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* --- inputs ------------------------------------------------------ */
+
+.field {
+  width: 100%;
+  border: 2px solid var(--color-ink);
+  border-radius: 12px;
+  background: var(--color-panel);
+  padding: 0.85rem 1rem;
+  font-size: 0.95rem;
+  color: var(--color-ink);
+  box-shadow: var(--brut-sm);
+  transition: box-shadow 120ms ease;
+}
+.field::placeholder {
+  color: color-mix(in srgb, var(--color-muted) 70%, transparent);
+}
+.field:focus {
+  outline: none;
+  box-shadow: var(--brut);
+}
+
+/* --- page furniture ---------------------------------------------- */
 
 /*
   A faint measuring grid. The product is an instrument that refuses things —
@@ -62,32 +224,78 @@ body {
 */
 .grid-bg {
   background-image:
-    linear-gradient(to right, color-mix(in srgb, var(--color-line) 55%, transparent) 1px, transparent 1px),
-    linear-gradient(to bottom, color-mix(in srgb, var(--color-line) 55%, transparent) 1px, transparent 1px);
-  background-size: 28px 28px;
+    linear-gradient(to right, color-mix(in srgb, var(--color-sui) 22%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--color-sui) 22%, transparent) 1px, transparent 1px);
+  background-size: 26px 26px;
 }
 
 /* Fades the grid out at the edges so it frames rather than tiles. */
 .grid-fade {
-  -webkit-mask-image: radial-gradient(ellipse 85% 65% at 50% 38%, #000 40%, transparent 100%);
-  mask-image: radial-gradient(ellipse 85% 65% at 50% 38%, #000 40%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 85% 65% at 50% 32%, #000 38%, transparent 100%);
+  mask-image: radial-gradient(ellipse 85% 65% at 50% 32%, #000 38%, transparent 100%);
+}
+
+/* A slow wash of Sui blue behind the hero. Motion, but nothing that moves. */
+.glow {
+  background:
+    radial-gradient(40rem 22rem at 12% -6%, color-mix(in srgb, var(--color-sui) 34%, transparent), transparent 70%),
+    radial-gradient(34rem 20rem at 92% 4%, color-mix(in srgb, var(--color-lilac) 26%, transparent), transparent 70%);
+  animation: drift 18s ease-in-out infinite alternate;
+}
+@keyframes drift {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to   { transform: translate3d(0, 1.5rem, 0) scale(1.06); }
+}
+
+/* Underline that looks drawn rather than generated. */
+.marker {
+  background: linear-gradient(transparent 62%, color-mix(in srgb, var(--color-sun) 85%, transparent) 62%);
+  padding-inline: 0.1em;
 }
 
 /* State stripe down the left of a console row. */
-.stripe { box-shadow: inset 3px 0 0 0 currentColor; }
-
-@keyframes rowIn {
-  from { opacity: 0; transform: translateY(3px); }
-  to   { opacity: 1; transform: none; }
-}
-.row-in { animation: rowIn 260ms ease-out both; }
-
-/* Numbers that carry weight — caps, ceilings, the figures a person checks. */
-.figure {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+.stripe {
+  box-shadow: inset 4px 0 0 0 currentColor;
 }
 
 /* A clause the chain will enforce, an agent will judge, or we refused. */
-.clause { border-left: 3px solid currentColor; }
+.clause {
+  border-left: 4px solid currentColor;
+}
+
+@keyframes rowIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+.row-in { animation: rowIn 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+@keyframes pop {
+  0%   { transform: scale(0.82); opacity: 0; }
+  60%  { transform: scale(1.06); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.pop { animation: pop 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+/* Waiting on a human or a chain — never used to mean success. */
+@keyframes pulseSoft {
+  50% { opacity: 0.45; }
+}
+.waiting { animation: pulseSoft 1.6s ease-in-out infinite; }
+
+/*
+  Nobody should get motion they did not ask for, and the drifting hero glow
+  is exactly the kind of thing that makes a person feel unwell.
+*/
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .btn:hover:not(:disabled),
+  .btn:active:not(:disabled) {
+    transform: none;
+  }
+}

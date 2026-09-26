@@ -9,6 +9,7 @@ import {
   type IDKitResult,
   type RpContext,
 } from "@worldcoin/idkit";
+import { Badge, Copy, Mono, Shell, Stat } from "@/components/ui";
 import { useZkLogin } from "@/lib/zklogin/useZkLogin";
 import { createdOfType, sendAction } from "@/lib/tx-client";
 import { StaleSessionError } from "@/lib/zklogin/client";
@@ -272,11 +273,11 @@ export default function Create() {
 
   if (!session) {
     return (
-      <Shell>
-        <h1 className="text-5xl leading-[0.95] tracking-tight">
+      <Shell width="max-w-xl">
+        <h1 className="text-4xl leading-[0.95] font-bold tracking-tight sm:text-5xl">
           Say what the
           <br />
-          agent <span className="text-accent">may do.</span>
+          agent <span className="marker text-sui-deep">may do.</span>
         </h1>
         <p className="mt-6 max-w-md leading-relaxed text-muted">
           Write it in plain English. You will see exactly which parts become
@@ -290,14 +291,14 @@ export default function Create() {
             to bob@gmail.com.&rdquo;
           </p>
           <div className="mt-5 space-y-1.5 border-t border-line pt-5 text-sm">
-            <p className="text-pass">⛓ 0.02 SUI per day · 30 periods · 1% slippage</p>
-            <p className="text-block">⨯ anything above that — refused by the chain</p>
+            <p className="text-pass">✓ 0.02 SUI per day · 30 periods · 1% slippage</p>
+            <p className="text-block">✕ anything above that — refused by the chain</p>
           </div>
         </div>
 
         <button
           onClick={signIn}
-          className="mt-8 w-full border border-ink bg-ink px-5 py-3.5 text-paper"
+          className="btn btn-primary mt-8 w-full py-3.5"
         >
           Continue with Google →
         </button>
@@ -308,24 +309,33 @@ export default function Create() {
 
   if (phase === "done" && link) {
     return (
-      <Shell>
-        <p className="text-xs tracking-widest text-pass uppercase">Intent created</p>
-        <p className="val mt-4 text-3xl leading-tight break-all">{link.name}</p>
+      <Shell width="max-w-xl">
+        <Badge tone="pass">intent created</Badge>
+        <p className="val mt-4 text-3xl leading-tight font-bold break-all">{link.name}</p>
         <p className="mt-2 text-sm text-muted">
           Send this to {c?.recipientEmail ?? "anyone"}. They need no wallet and pay no gas.
         </p>
+
         <div className="panel mt-6 p-4">
-          <p className="val text-sm break-all">
-            {typeof window !== "undefined" ? window.location.origin : ""}
-            {link.url}
-          </p>
+          <p className="text-xs tracking-widest text-muted uppercase">The link</p>
+          <div className="mt-2 flex items-center gap-2">
+            <span className="val min-w-0 flex-1 truncate text-sm">
+              {typeof window !== "undefined" ? window.location.origin : ""}
+              {link.url}
+            </span>
+            <Copy
+              value={`${typeof window !== "undefined" ? window.location.origin : ""}${link.url}`}
+              label="link"
+            />
+          </div>
         </div>
-        <div className="mt-6 flex gap-3">
-          <a href={link.url} className="border border-ink bg-ink px-4 py-2 text-sm text-paper">
+
+        <div className="mt-6 flex flex-wrap gap-3">
+          <a href={link.url} className="btn btn-primary">
             Open as the recipient
           </a>
-          <a href="/" className="border border-line px-4 py-2 text-sm">
-            Done
+          <a href="/mine" className="btn">
+            Your intents
           </a>
         </div>
       </Shell>
@@ -334,7 +344,7 @@ export default function Create() {
 
   if (phase === "minting") {
     return (
-      <Shell>
+      <Shell width="max-w-xl">
         <p className="text-xs tracking-widest text-muted uppercase">Creating</p>
         <p className="mt-4 text-4xl leading-tight tracking-tight">{step}…</p>
         <p className="mt-8 text-sm text-muted">
@@ -346,8 +356,8 @@ export default function Create() {
 
   if (phase === "review" && c) {
     return (
-      <Shell wide>
-        <button onClick={() => setPhase("compose")} className="text-sm text-muted hover:text-ink">
+      <Shell width="max-w-2xl">
+        <button onClick={() => setPhase("compose")} className="btn btn-sm">
           ← edit
         </button>
 
@@ -358,7 +368,7 @@ export default function Create() {
         {/* Enforced ------------------------------------------------ */}
         <div className="row-in mt-10">
           <div className="flex items-baseline gap-3">
-            <span className="val text-pass">⛓</span>
+            <span className="val text-pass">✓</span>
             <p className="text-xs tracking-widest text-muted uppercase">
               Enforced on-chain
             </p>
@@ -366,12 +376,12 @@ export default function Create() {
 
           <div className="panel clause mt-3 p-6 text-pass">
             <div className="grid grid-cols-2 gap-x-8 gap-y-5 text-ink sm:grid-cols-3">
-              <Figure k="Per day" v={`${c.perDay}`} unit="SUI" />
-              <Figure k="Periods" v={`${c.days}`} unit="× 24h" />
-              <Figure k="Total" v={(c.perDay * c.days).toFixed(3)} unit="SUI" />
-              <Figure k="Max slippage" v={`${c.maxSlippagePct}`} unit="%" />
-              <Figure k="Hard ceiling" v={(c.perDay * 5).toFixed(3)} unit="SUI" accent />
-              <Figure k="Pool" v="1" unit="approved" />
+              <Stat k="Per day" v={`${c.perDay}`} unit="SUI" />
+              <Stat k="Periods" v={`${c.days}`} unit="× 24h" />
+              <Stat k="Total" v={(c.perDay * c.days).toFixed(3)} unit="SUI" />
+              <Stat k="Max slippage" v={`${c.maxSlippagePct}`} unit="%" />
+              <Stat k="Hard ceiling" v={(c.perDay * 5).toFixed(3)} unit="SUI" tone="sui" />
+              <Stat k="Pool" v="1" unit="approved" />
             </div>
 
             <dl className="mt-6 space-y-1.5 border-t border-line pt-5 text-sm text-ink">
@@ -417,7 +427,7 @@ export default function Create() {
         {c.rejected.length > 0 && (
           <div className="row-in mt-8" style={{ animationDelay: "180ms" }}>
             <div className="flex items-baseline gap-3">
-              <span className="val text-block">⨯</span>
+              <span className="val text-block">✕</span>
               <p className="text-xs tracking-widest text-muted uppercase">Refused</p>
             </div>
             <div className="panel clause mt-3 p-6 text-block">
@@ -440,12 +450,12 @@ export default function Create() {
           {issuerNullifier ? (
             <>
               <p className="text-sm text-pass">
-                ⛓ Verified — recorded on the capsule, so only you can approve the
+                ✓ Verified — recorded on the capsule, so only you can approve the
                 agent going past these limits.
               </p>
               <button
                 onClick={mint}
-                className="mt-5 w-full border border-ink bg-ink px-5 py-3.5 text-paper"
+                className="btn btn-primary mt-5 w-full py-3.5"
               >
                 Create intent →
               </button>
@@ -455,7 +465,7 @@ export default function Create() {
               <button
                 onClick={() => setWorldOpen(true)}
                 disabled={!rp || !action || verifying}
-                className="w-full border border-ink bg-ink px-5 py-3.5 text-paper disabled:opacity-30"
+                className="btn btn-primary w-full py-3.5"
               >
                 {verifying ? "Verifying…" : !rp ? "Preparing…" : "Verify with World & create →"}
               </button>
@@ -484,13 +494,13 @@ export default function Create() {
   }
 
   return (
-    <Shell>
+    <Shell width="max-w-xl">
       <AccountStrip address={session.address} email={session.email} />
 
-      <h1 className="mt-6 text-5xl leading-[0.95] tracking-tight">
+      <h1 className="mt-6 text-4xl leading-[0.95] font-bold tracking-tight sm:text-5xl">
         Say what the
         <br />
-        agent <span className="text-accent">may do.</span>
+        agent <span className="marker text-sui-deep">may do.</span>
       </h1>
       <p className="mt-6 max-w-md leading-relaxed text-muted">
         Write it however you like. You will see exactly which parts become
@@ -502,7 +512,7 @@ export default function Create() {
         onChange={(e) => setText(e.target.value)}
         rows={4}
         placeholder="Sell 0.02 SUI a day for 30 days, max 1% slippage, send the DUSD to bob@gmail.com"
-        className="panel mt-10 w-full resize-none px-5 py-4 leading-relaxed outline-none focus:border-ink"
+        className="field mt-10 resize-none leading-relaxed"
       />
 
       <p className="mt-6 text-xs tracking-wide text-muted uppercase">Try one</p>
@@ -511,7 +521,7 @@ export default function Create() {
           <button
             key={e}
             onClick={() => setText(e)}
-            className="panel block w-full px-4 py-3 text-left text-sm text-muted transition hover:border-ink hover:text-ink"
+            className="panel-flat block w-full px-4 py-3 text-left text-sm text-muted transition hover:-translate-y-0.5 hover:border-ink hover:text-ink"
           >
             {e}
           </button>
@@ -523,45 +533,11 @@ export default function Create() {
       <button
         onClick={compile}
         disabled={!text.trim() || compiling}
-        className="mt-8 w-full border border-ink bg-ink px-5 py-3.5 text-paper disabled:opacity-30"
+        className="btn btn-primary mt-8 w-full py-3.5"
       >
         {compiling ? "Reading…" : "Compile →"}
       </button>
     </Shell>
-  );
-}
-
-function Shell({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
-  return (
-    <main className="relative min-h-dvh overflow-hidden p-6">
-      <div className="grid-bg grid-fade pointer-events-none absolute inset-0" />
-      <div className={`relative mx-auto pt-14 pb-24 ${wide ? "max-w-2xl" : "max-w-xl"}`}>
-        <a href="/" className="val text-sm text-accent">
-          [→]
-        </a>
-        <div className="mt-8">{children}</div>
-      </div>
-    </main>
-  );
-}
-
-function Figure({
-  k,
-  v,
-  unit,
-  accent,
-}: {
-  k: string;
-  v: string;
-  unit: string;
-  accent?: boolean;
-}) {
-  return (
-    <div>
-      <p className="text-xs text-muted">{k}</p>
-      <p className={`figure mt-1 text-3xl ${accent ? "text-accent" : ""}`}>{v}</p>
-      <p className="text-xs text-muted">{unit}</p>
-    </div>
   );
 }
 
@@ -602,21 +578,21 @@ function AccountStrip({ address, email }: { address: string; email?: string }) {
 
   const sui = balance === null ? null : Number(balance) / 1_000_000_000;
 
+  const low = sui !== null && sui < 0.1;
+
   return (
-    <div className="panel flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs">
+    <div className="panel-tint flex flex-wrap items-center justify-between gap-3 px-4 py-3">
       <div className="min-w-0">
-        {email && <span className="text-muted">{email}</span>}
-        <button
-          onClick={() => navigator.clipboard?.writeText(address)}
-          title="Copy — top this address up if a mint runs short"
-          className="val ml-2 break-all text-ink hover:text-accent"
-        >
-          {address.slice(0, 10)}…{address.slice(-6)}
-        </button>
+        {email && <p className="text-xs text-muted">{email}</p>}
+        <div className="mt-0.5">
+          <Mono value={address} chars={8} label="address" />
+        </div>
       </div>
-      <span className={sui !== null && sui < 0.1 ? "text-block" : "text-muted"}>
+      {/* Gas is sponsored, but the vault is funded from these coins — so
+          this is the balance that can actually stop a mint. */}
+      <Badge tone={low ? "block" : "pass"}>
         {sui === null ? "…" : `${sui.toFixed(4)} SUI`}
-      </span>
+      </Badge>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Badge, Copy, Field, Meter, Mono, Shell, phaseTone } from "@/components/ui";
 import { sendAction } from "@/lib/tx-client";
 import { useZkLogin } from "@/lib/zklogin/useZkLogin";
 
@@ -72,7 +73,7 @@ export default function MinePage() {
   useEffect(() => {
     load();
     // The agent spends while this is open. A revoke button next to a stale
-    // number is worse than no number.
+    // number is worse than no number at all.
     const t = setInterval(load, 8000);
     return () => clearInterval(t);
   }, [load]);
@@ -104,47 +105,75 @@ export default function MinePage() {
   if (!session) {
     return (
       <Shell>
-        <h1 className="text-xl">Your intents</h1>
-        <p className="mt-2 text-sm text-muted">
-          Sign in to see what you have issued and what you hold.
+        <h1 className="text-4xl font-bold tracking-tight">Your intents</h1>
+        <p className="mt-3 max-w-md text-muted">
+          Everything you have issued, and everything you hold. Sign in to see it.
         </p>
-        <button
-          onClick={signIn}
-          className="mt-6 border border-ink bg-ink px-4 py-2 text-sm text-paper"
-        >
+        <button onClick={signIn} className="btn btn-primary mt-6">
           Continue with Google
         </button>
       </Shell>
     );
   }
 
-  return (
-    <Shell>
-      <div className="flex items-baseline justify-between gap-4">
-        <h1 className="text-xl">Your intents</h1>
-        <a href="/create" className="val text-sm text-accent">
-          new +
-        </a>
-      </div>
-      <p className="val mt-2 text-xs break-all text-muted">
-        {data?.email ?? session.email} · {(data?.address ?? session.address).slice(0, 18)}…
-      </p>
+  const issued = data?.issued;
+  const received = data?.received;
+  const live = issued?.filter((r) => r.phase === "active").length ?? 0;
 
-      {note && <p className="mt-4 text-sm text-pass">{note}</p>}
-      {error && <p className="mt-4 text-sm text-block">{error}</p>}
+  return (
+    <Shell
+      nav={
+        <a href="/create" className="btn btn-sm btn-primary">
+          Create
+        </a>
+      }
+    >
+      <h1 className="text-4xl font-bold tracking-tight">Your intents</h1>
+
+      <div className="panel-tint mt-5 flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <p className="text-xs tracking-widest text-muted uppercase">Signed in as</p>
+          <p className="mt-0.5 truncate text-sm font-semibold">
+            {data?.email ?? session.email}
+          </p>
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs tracking-widest text-muted uppercase">Sui address</p>
+          <div className="mt-0.5">
+            <Mono value={data?.address ?? session.address} chars={8} label="address" />
+          </div>
+        </div>
+        {issued && (
+          <Badge tone={live > 0 ? "pass" : "idle"}>
+            {live} live · {issued.length} issued
+          </Badge>
+        )}
+      </div>
+
+      {note && (
+        <p className="pop panel mt-4 border-pass bg-pass p-3 text-sm font-semibold text-white">
+          {note}
+        </p>
+      )}
+      {error && (
+        <p className="pop panel mt-4 border-block bg-block p-3 text-sm font-semibold text-white">
+          {error}
+        </p>
+      )}
 
       <Section
         title="Issued by you"
-        empty="You have not created any intents yet."
-        rows={data?.issued}
+        hint="You funded these. You can end them at any moment."
+        empty="Nothing yet. Create your first intent."
+        rows={issued}
       >
         {(r) => (
           <Card key={r.label} row={r} side="issuer">
-            {/* Pausing is reversible and revocation is not, so they are not
-                given the same weight. */}
-            <Btn
-              busy={busy === r.label}
-              disabled={r.phase === "ended"}
+            {/* Pausing is reversible and revocation is not, so they do not
+                get the same weight. */}
+            <button
+              className="btn btn-sm"
+              disabled={busy === r.label || r.phase === "ended"}
               onClick={() =>
                 act(
                   r,
@@ -154,58 +183,51 @@ export default function MinePage() {
               }
             >
               {r.issuerPaused ? "Resume" : "Pause"}
-            </Btn>
-            <Btn
-              danger
-              busy={busy === r.label}
-              disabled={r.phase === "ended"}
-              onClick={() =>
-                act(r, { kind: "revokeCapsule", capsuleId: r.capsuleId }, "revoked")
-              }
+            </button>
+            <button
+              className="btn btn-sm btn-danger"
+              disabled={busy === r.label || r.phase === "ended"}
+              onClick={() => act(r, { kind: "revokeCapsule", capsuleId: r.capsuleId }, "revoked")}
             >
               Revoke
-            </Btn>
-            <Btn
-              danger
-              busy={busy === r.label}
-              onClick={() =>
-                act(r, { kind: "revokeVault", vaultId: r.vaultId }, "swept")
-              }
+            </button>
+            <button
+              className="btn btn-sm btn-danger"
+              disabled={busy === r.label}
+              onClick={() => act(r, { kind: "revokeVault", vaultId: r.vaultId }, "swept")}
             >
               Revoke &amp; sweep
-            </Btn>
+            </button>
           </Card>
         )}
       </Section>
 
       <Section
         title="Held by you"
+        hint="Authority someone gave you. A clean exit is what makes one safe to accept."
         empty="No intents have been issued to you."
-        rows={data?.received}
+        rows={received}
       >
         {(r) => (
           <Card key={r.label} row={r} side="recipient">
             {!r.holder ? (
-              <a
-                href={`/i/${r.label}`}
-                className="border border-ink px-3 py-1.5 text-xs hover:bg-ink hover:text-paper"
-              >
+              <a href={`/i/${r.label}`} className="btn btn-sm btn-primary">
                 Verify &amp; claim
               </a>
             ) : !samePrincipal(r, data) ? (
-              /* Addressed to this person's email, but claimed by a different
-                 Sui address — so the chain will refuse them, and offering the
-                 button anyway would just produce an abort they cannot act on.
-                 Happens to links claimed before the issuer-derivation fix. */
+              /* Addressed to this person's email but claimed by a different
+                 Sui address, so the chain will refuse them. Offering the
+                 button anyway would only produce an abort they cannot act
+                 on. True of links claimed before the canonicalIss fix. */
               <p className="text-xs text-muted">
-                Claimed by <span className="val">{r.principal?.slice(0, 12)}…</span>, not
-                your current address. Only that address can pause or hand it back.
+                Claimed by <span className="val">{r.principal?.slice(0, 12)}…</span> — only
+                that address can pause or hand it back.
               </p>
             ) : (
               <>
-                <Btn
-                  busy={busy === r.label}
-                  disabled={r.phase === "ended"}
+                <button
+                  className="btn btn-sm"
+                  disabled={busy === r.label || r.phase === "ended"}
                   onClick={() =>
                     act(
                       r,
@@ -219,19 +241,16 @@ export default function MinePage() {
                   }
                 >
                   {r.principalPaused ? "Resume" : "Pause"}
-                </Btn>
-                {/* Not "revoke" — the funds are not theirs to reclaim. This
-                    ends their authority and returns the rest to the sender. */}
-                <Btn
-                  danger
-                  busy={busy === r.label}
-                  disabled={r.phase === "ended"}
-                  onClick={() =>
-                    act(r, { kind: "surrender", capsuleId: r.capsuleId }, "handed back")
-                  }
+                </button>
+                {/* Not "revoke" — the funds were never theirs to reclaim.
+                    This ends their authority and returns the rest. */}
+                <button
+                  className="btn btn-sm btn-danger"
+                  disabled={busy === r.label || r.phase === "ended"}
+                  onClick={() => act(r, { kind: "surrender", capsuleId: r.capsuleId }, "handed back")}
                 >
                   Hand back
-                </Btn>
+                </button>
               </>
             )}
           </Card>
@@ -239,8 +258,8 @@ export default function MinePage() {
       </Section>
 
       {data?.truncated && (
-        <p className="mt-6 text-xs text-muted">
-          Showing the most recent 60. Older intents are still live on chain.
+        <p className="mt-8 text-xs text-muted">
+          Showing the 60 most recent. Older intents are still live on chain.
         </p>
       )}
     </Shell>
@@ -250,33 +269,43 @@ export default function MinePage() {
 /** Can this viewer actually exercise the principal's controls? */
 function samePrincipal(r: Row, data: Mine | null): boolean {
   return Boolean(
-    data?.address && r.principal &&
-    r.principal.toLowerCase() === data.address.toLowerCase(),
+    data?.address &&
+      r.principal &&
+      r.principal.toLowerCase() === data.address.toLowerCase(),
   );
 }
 
 function Section({
   title,
+  hint,
   empty,
   rows,
   children,
 }: {
   title: string;
+  hint: string;
   empty: string;
   rows?: Row[];
   children: (r: Row) => React.ReactNode;
 }) {
   return (
-    <section className="mt-10">
-      <p className="text-xs tracking-widest text-muted uppercase">
-        {title} {rows && <span className="val">({rows.length})</span>}
-      </p>
+    <section className="mt-12">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="text-2xl font-bold tracking-tight">{title}</h2>
+        {rows && <span className="val text-sm text-muted">{rows.length}</span>}
+      </div>
+      <p className="mt-1 text-sm text-muted">{hint}</p>
+
       {!rows ? (
-        <p className="mt-3 text-sm text-muted">Loading…</p>
+        <div className="panel-flat mt-4 p-6">
+          <p className="waiting text-sm text-muted">Reading the chain…</p>
+        </div>
       ) : rows.length === 0 ? (
-        <p className="mt-3 text-sm text-muted">{empty}</p>
+        <div className="panel-flat mt-4 p-6">
+          <p className="text-sm text-muted">{empty}</p>
+        </div>
       ) : (
-        <div className="mt-3 space-y-3">{rows.map(children)}</div>
+        <div className="mt-4 space-y-4">{rows.map(children)}</div>
       )}
     </section>
   );
@@ -293,114 +322,87 @@ function Card({
 }) {
   if (row.unreadable) {
     return (
-      <div className="panel p-4">
-        <p className="val text-sm break-all">{row.name}</p>
+      <div className="panel border-block p-5">
+        <p className="val text-sm font-semibold break-all">{row.name}</p>
         <p className="mt-1 text-xs text-block">
-          Could not read this capability on chain. It has not been deleted — try again.
+          Could not read this on chain. It has not been deleted — try again.
         </p>
       </div>
     );
   }
 
   const spent = Number(row.spent ?? 0);
-  const cap = Math.max(1, Number(row.totalCap ?? 1));
+  const cap = Number(row.totalCap ?? 0);
+  const ended = row.phase === "ended";
 
   return (
-    <div className="panel p-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <a href={`/i/${row.label}`} className="val text-sm break-all hover:text-accent">
-          {row.name}
-        </a>
-        <Status row={row} />
-      </div>
-
-      <p className="mt-1 text-xs text-muted">{row.goal}</p>
-
-      <p className="mt-2 text-xs text-muted">
-        {side === "issuer"
-          ? row.boundTo
-            ? `To ${row.boundTo}`
-            : "Bearer — first verified human claims it"
-          : `From ${row.issuerAddress.slice(0, 10)}…`}
-      </p>
-
-      <div className="mt-3 h-1 w-full bg-line">
-        <div
-          className="h-full bg-pass transition-[width] duration-500"
-          style={{ width: `${Math.min(100, (spent / cap) * 100)}%` }}
-        />
-      </div>
-      <div className="mt-1.5 flex flex-wrap justify-between gap-2 text-xs text-muted">
-        <span className="val">
-          {sui(row.spent)} / {sui(row.totalCap)} SUI spent
+    <article className={`panel overflow-hidden ${ended ? "opacity-70" : ""}`}>
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-ink bg-sky px-5 py-3">
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <a
+            href={`/i/${row.label}`}
+            className="val truncate text-sm font-semibold hover:text-sui-deep"
+          >
+            {row.name}
+          </a>
+          <Copy value={row.name} label="name" />
         </span>
-        <span className="val">
-          {sui(row.vaultBalance)} left · {sui(row.windowRemaining)} today
-        </span>
+        <Badge tone={phaseTone(row.phase)}>{row.endedBecause ?? row.phase ?? "—"}</Badge>
+      </header>
+
+      <div className="p-5">
+        <p className="text-sm">{row.goal}</p>
+
+        <p className="mt-1.5 text-xs text-muted">
+          {side === "issuer"
+            ? row.boundTo
+              ? `To ${row.boundTo}`
+              : "Bearer — the first verified human claims it"
+            : "From the sender below"}
+        </p>
+
+        <div className="mt-4">
+          <Meter value={spent} max={cap} tone={ended ? "block" : "pass"} />
+          <div className="mt-2 flex flex-wrap justify-between gap-2 text-xs">
+            <span className="val text-muted">
+              <b className="text-ink">{sui(row.spent)}</b> / {sui(row.totalCap)} SUI spent
+            </span>
+            <span className="val text-muted">
+              <b className="text-ink">{sui(row.vaultBalance)}</b> left ·{" "}
+              {sui(row.windowRemaining)} today
+            </span>
+          </div>
+        </div>
+
+        {/* The ids someone actually needs to paste into an explorer. */}
+        <details className="group mt-4">
+          <summary className="val cursor-pointer list-none text-xs text-muted hover:text-sui-deep">
+            ▸ ids &amp; addresses
+          </summary>
+          <div className="panel-flat mt-2 divide-y divide-line px-3 py-1">
+            <Field k="capsule" value={row.capsuleId} chars={8} />
+            <Field k="vault" value={row.vaultId} chars={8} />
+            <Field k={side === "issuer" ? "your address" : "sender"} value={row.issuerAddress} chars={8} />
+            {row.principal && <Field k="principal" value={row.principal} chars={8} />}
+            {row.holder && <Field k="agent" value={row.holder} chars={8} />}
+            <Field
+              k="link"
+              value={`${typeof window !== "undefined" ? window.location.origin : ""}/i/${row.label}`}
+              chars={14}
+            />
+          </div>
+        </details>
+
+        <div className="mt-5 flex flex-wrap items-center gap-2">
+          {children}
+          <a
+            href={`/i/${row.label}/console`}
+            className="ml-auto text-xs font-semibold text-muted hover:text-sui-deep"
+          >
+            console →
+          </a>
+        </div>
       </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {children}
-        <a
-          href={`/i/${row.label}/console`}
-          className="ml-auto text-xs text-muted hover:text-accent"
-        >
-          console →
-        </a>
-      </div>
-    </div>
-  );
-}
-
-/** Colour is never the only signal — the word is always there too. */
-function Status({ row }: { row: Row }) {
-  const label = row.endedBecause ?? row.phase ?? "unknown";
-  const tone =
-    row.phase === "active"
-      ? "text-pass"
-      : row.phase === "ended"
-        ? "text-block"
-        : "text-muted";
-  return <span className={`val text-xs ${tone}`}>{label}</span>;
-}
-
-function Btn({
-  children,
-  onClick,
-  danger,
-  busy,
-  disabled,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  danger?: boolean;
-  busy?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={busy || disabled}
-      className={`border px-3 py-1.5 text-xs disabled:opacity-30 ${
-        danger
-          ? "border-block text-block hover:bg-block hover:text-paper"
-          : "border-ink hover:bg-ink hover:text-paper"
-      }`}
-    >
-      {busy ? "…" : children}
-    </button>
-  );
-}
-
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="min-h-dvh p-6">
-      <div className="mx-auto max-w-2xl pt-10">
-        <a href="/" className="val text-sm text-accent">
-          [→]
-        </a>
-        <div className="mt-6">{children}</div>
-      </div>
-    </main>
+    </article>
   );
 }

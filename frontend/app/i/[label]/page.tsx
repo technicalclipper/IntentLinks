@@ -9,10 +9,10 @@ import {
   type RpContext,
 } from "@worldcoin/idkit";
 import { use, useEffect, useState } from "react";
+import { Badge, Copy, Field, Meter, Mono, Shell, Stat } from "@/components/ui";
 import { useZkLogin } from "@/lib/zklogin/useZkLogin";
 
 const APP_ID = process.env.NEXT_PUBLIC_WORLD_APP_ID as `app_${string}`;
-const ACTION = process.env.NEXT_PUBLIC_WORLD_ACTION_IDENTITY ?? "intentlink-identity";
 const SUI = 1_000_000_000;
 
 /**
@@ -27,17 +27,19 @@ const SUI = 1_000_000_000;
  * so nobody is turned away, which matters when the demo runs on whichever
  * phone is to hand. Production would ask for orb on a standing authority.
  */
-const CREDENTIAL = (
-  {
-    device: deviceLegacy,
-    orb: orbLegacy,
-    human: proofOfHuman,
-  } as const
-)[process.env.NEXT_PUBLIC_WORLD_CREDENTIAL ?? "device"] ?? deviceLegacy;
-
+const CREDENTIAL =
+  (
+    {
+      device: deviceLegacy,
+      orb: orbLegacy,
+      human: proofOfHuman,
+    } as const
+  )[process.env.NEXT_PUBLIC_WORLD_CREDENTIAL ?? "device"] ?? deviceLegacy;
 
 interface Intent {
   name: string;
+  capsuleId: string;
+  vaultId: string;
   policy: {
     goal: string;
     asset: string;
@@ -51,6 +53,7 @@ interface Intent {
   };
   chain: {
     holder: string | null;
+    principal: string | null;
     revoked: boolean;
     expiresAt: string;
     vaultBalance: string;
@@ -70,7 +73,8 @@ interface Intent {
   verification: { hashesAgree: boolean; fieldsAgree: boolean };
 }
 
-const sui = (raw: string) => (Number(raw) / SUI).toLocaleString(undefined, { maximumFractionDigits: 4 });
+const sui = (raw: string) =>
+  (Number(raw) / SUI).toLocaleString(undefined, { maximumFractionDigits: 4 });
 
 export default function IntentPage({ params }: { params: Promise<{ label: string }> }) {
   const { label } = use(params);
@@ -82,8 +86,8 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
   const [rejected, setRejected] = useState<{ issuedTo: string; signedInAs: string } | null>(null);
   const [claimed, setClaimed] = useState(false);
   const [rp, setRp] = useState<RpContext | null>(null);
-  // The server mints a fresh action per request, so a second
-  // verification is never treated as a repeat of the first.
+  // The server mints a fresh action per request, so a second verification is
+  // never treated as a repeat of the first.
   const [action, setAction] = useState<string | null>(null);
   const [worldOpen, setWorldOpen] = useState(false);
 
@@ -154,82 +158,119 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
     }
   }
 
-  if (error && !intent) return <Shell><p className="text-sm text-block">{error}</p></Shell>;
-  if (!intent) return <Shell><p className="text-sm text-muted">Loading…</p></Shell>;
+  if (error && !intent) {
+    return (
+      <Shell width="max-w-xl">
+        <div className="panel border-block p-6">
+          <p className="text-sm font-semibold text-block">{error}</p>
+        </div>
+      </Shell>
+    );
+  }
+  if (!intent) {
+    return (
+      <Shell width="max-w-xl">
+        <p className="waiting text-sm text-muted">Reading both chains…</p>
+      </Shell>
+    );
+  }
 
   const p = intent.policy;
   const ended = intent.status.phase === "ended";
   const live = Boolean(intent.chain.holder);
+  const verified = intent.verification.hashesAgree && intent.verification.fieldsAgree;
 
   return (
-    <Shell>
-      <p className="text-xs tracking-wide text-muted uppercase">Intent received</p>
-      <h1 className="val mt-2 text-xl break-all">{intent.name}</h1>
+    <Shell width="max-w-xl">
+      <span className="badge bg-sun">✉ intent received</span>
+
+      <h1 className="mt-4 flex flex-wrap items-center gap-2 text-xl font-bold tracking-tight sm:text-3xl">
+        <span className="val break-all">{intent.name}</span>
+        <Copy value={intent.name} label="name" />
+      </h1>
 
       {p.boundTo && (
         <p className="mt-2 text-sm text-muted">
-          For <span className="val">{p.boundTo}</span>
+          For <b className="val text-ink">{p.boundTo}</b>
           {session?.email && (
-            <span className={p.boundTo.split("@")[1] === session.email.split("@")[1] ? "text-pass" : ""}>
-              {" · "}you are {session.email}
-            </span>
+            <>
+              {" · "}you are{" "}
+              <b
+                className={
+                  p.boundTo.split("@")[1] === session.email.split("@")[1]
+                    ? "text-pass"
+                    : "text-ink"
+                }
+              >
+                {session.email}
+              </b>
+            </>
           )}
         </p>
       )}
 
-      <div className="panel mt-6 p-5">
-        <p className="text-xs tracking-wide text-muted uppercase">Granted</p>
-        <ul className="mt-3 space-y-1.5 text-sm">
+      {/* --- what the chain will and will not allow ------------- */}
+      <div className="panel mt-6 overflow-hidden">
+        <div className="border-b-2 border-ink bg-pass px-5 py-2.5">
+          <p className="text-xs font-bold tracking-widest text-white uppercase">Granted</p>
+        </div>
+        <ul className="space-y-2 px-5 py-4 text-sm">
           <Line ok>{p.goal}</Line>
-          <Line ok>Up to <b className="val">{sui(p.perWindowCap)} {p.asset}</b> per day</Line>
-          <Line ok><b className="val">{p.maxWindows}</b> daily periods</Line>
-          <Line ok>Max <b className="val">{Number(p.maxSlippageBps) / 100}%</b> slippage</Line>
+          <Line ok>
+            Up to{" "}
+            <b className="val">
+              {sui(p.perWindowCap)} {p.asset}
+            </b>{" "}
+            per day
+          </Line>
+          <Line ok>
+            <b className="val">{p.maxWindows}</b> daily periods
+          </Line>
+          <Line ok>
+            Max <b className="val">{Number(p.maxSlippageBps) / 100}%</b> slippage
+          </Line>
           <Line ok>One approved pool only</Line>
         </ul>
 
-        <p className="mt-5 text-xs tracking-wide text-muted uppercase">Not granted</p>
-        <ul className="mt-3 space-y-1.5 text-sm">
+        <div className="border-y-2 border-ink bg-block px-5 py-2.5">
+          <p className="text-xs font-bold tracking-widest text-white uppercase">Not granted</p>
+        </div>
+        <ul className="space-y-2 px-5 py-4 text-sm">
           <Line>Any other pool or asset</Line>
-          <Line>More than <b className="val">{sui(p.perWindowCap)}</b> in a day</Line>
-          <Line>More than <b className="val">{sui(p.hardCap)}</b> ever, in one action</Line>
+          <Line>
+            More than <b className="val">{sui(p.perWindowCap)}</b> in a day
+          </Line>
+          <Line>
+            More than <b className="val">{sui(p.hardCap)}</b> ever, in one action
+          </Line>
           <Line>Anything after the sender revokes</Line>
         </ul>
       </div>
 
-      {/* What the sender put in, and what is left of it. The recipient is
-          the one bearing the consequence of it running out, so it should not
-          take a block explorer to find out. */}
+      {/* What the sender put in, and what is left of it. The recipient bears
+          the consequence of it running out, so it should not take a block
+          explorer to find out. */}
       {live && (
-        <div className="panel mt-3 p-5">
+        <div className="panel mt-4 p-5">
           <p className="text-xs tracking-widest text-muted uppercase">Funds</p>
 
           <div className="mt-4 grid grid-cols-3 gap-4">
-            <Figure k="Left in the vault" v={sui(intent.chain.vaultBalance)} unit="SUI" />
-            <Figure k="Spent so far" v={sui(intent.chain.spent)} unit="SUI" />
-            <Figure
+            <Stat k="Left in the vault" v={sui(intent.chain.vaultBalance)} unit="SUI" />
+            <Stat k="Spent so far" v={sui(intent.chain.spent)} unit="SUI" />
+            <Stat
               k="Available today"
               v={sui(intent.status.windowRemaining)}
               unit="SUI"
-              accent
+              tone="sui"
             />
           </div>
 
           <div className="mt-5">
-            <div className="h-1.5 w-full bg-line">
-              <div
-                className="h-full bg-pass transition-[width] duration-500"
-                style={{
-                  width: `${Math.min(
-                    100,
-                    (Number(intent.chain.spent) / Math.max(1, Number(intent.chain.totalCap))) * 100,
-                  )}%`,
-                }}
-              />
-            </div>
+            <Meter value={Number(intent.chain.spent)} max={Number(intent.chain.totalCap)} />
             <div className="mt-2 flex justify-between text-xs text-muted">
               <span>
-                period <span className="val">{intent.chain.windowsUsed || "0"}</span> of{" "}
-                <span className="val">{intent.chain.maxWindows}</span>
+                period <b className="val text-ink">{intent.chain.windowsUsed || "0"}</b> of{" "}
+                <b className="val text-ink">{intent.chain.maxWindows}</b>
               </span>
               <span className="val">
                 {sui(intent.chain.spent)} / {sui(intent.chain.totalCap)} SUI
@@ -244,132 +285,125 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
         </div>
       )}
 
-      <div className="panel mt-3 p-4">
-        <p className="text-xs text-muted">
-          {intent.verification.hashesAgree && intent.verification.fieldsAgree ? (
-            <span className="text-pass">
-              ⛓ Verified — the published terms match what the chain enforces, field by field.
-            </span>
-          ) : (
-            <span className="text-block">
-              ⚠ The published terms do not match the on-chain object. Do not redeem this.
-            </span>
-          )}
-        </p>
-      </div>
-
-      {ended ? (
-        <p className="mt-6 text-sm text-block">
-          This intent has ended ({intent.status.endedBecause}).
-        </p>
-      ) : claimed || live ? (
-        <div className="mt-6">
-          <p className="text-sm text-pass">Redeemed. The agent is live.</p>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <a href={`/i/${label}/console`} className="border border-ink bg-ink px-4 py-2 text-sm text-paper">
-              Watch it work
-            </a>
-            <a href="/mine" className="border border-line px-4 py-2 text-sm">
-              Your intents
-            </a>
-          </div>
-        </div>
-      ) : rejected ? (
-        <div className="panel mt-6 border-block p-5">
-          <p className="text-sm text-block">This intent was issued to a different account.</p>
-          <dl className="mt-3 space-y-1 text-sm">
-            <Row k="Issued to" v={rejected.issuedTo} />
-            <Row k="Signed in as" v={rejected.signedInAs} />
-          </dl>
-          <p className="mt-3 text-xs text-muted">Nothing was claimed. The funds are untouched.</p>
-        </div>
-      ) : !session ? (
-        <div className="mt-6">
-          <button onClick={signIn} className="border border-ink bg-ink px-4 py-2 text-sm text-paper">
-            Continue with Google
-          </button>
-          <p className="mt-3 text-xs text-muted">No wallet. No seed phrase. No gas.</p>
-        </div>
-      ) : (
-        <div className="mt-6">
-          <button
-            onClick={() => setWorldOpen(true)}
-            disabled={claiming || !rp || !action}
-            className="border border-ink bg-ink px-4 py-2 text-sm text-paper disabled:opacity-40"
-          >
-            {claiming ? "Redeeming…" : !rp ? "Preparing…" : "Verify with World to redeem"}
-          </button>
-
-          {/* World's own modal — QR on desktop, deep link on mobile. */}
-          {rp && action && (
-            <IDKitRequestWidget
-              open={worldOpen}
-              onOpenChange={setWorldOpen}
-              app_id={APP_ID}
-              action={action!}
-              rp_context={rp}
-              allow_legacy_proofs
-              action_description="Redeem an IntentLink permission"
-              preset={CREDENTIAL()}
-              onSuccess={redeem}
-            />
-          )}
-          <p className="mt-3 text-xs text-muted">
-            One link, one human — so a forwarded copy cannot be claimed twice.
+      {/* --- the cross-chain check ----------------------------- */}
+      <div className={`panel mt-4 p-4 ${verified ? "" : "border-block"}`}>
+        <div className="flex items-start gap-3">
+          <Badge tone={verified ? "pass" : "block"}>{verified ? "verified" : "mismatch"}</Badge>
+          <p className="text-xs leading-relaxed text-muted">
+            {verified
+              ? "The published terms match what the chain enforces, field by field. ENS and Sui agree."
+              : "The published terms do not match the on-chain object. Do not redeem this."}
           </p>
         </div>
-      )}
-
-      {error && <p className="mt-4 text-sm text-block">{error}</p>}
-    </Shell>
-  );
-}
-
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="min-h-dvh p-6">
-      <div className="mx-auto max-w-lg pt-10">
-        <a href="/" className="val text-sm text-accent">[→]</a>
-        <div className="mt-6">{children}</div>
       </div>
-    </main>
+
+      {/* --- ids ----------------------------------------------- */}
+      <details className="group mt-4">
+        <summary className="val cursor-pointer list-none text-xs text-muted hover:text-sui-deep">
+          ▸ ids &amp; addresses
+        </summary>
+        <div className="panel-flat mt-2 divide-y divide-line px-4 py-1">
+          <Field k="capsule" value={intent.capsuleId} chars={10} />
+          <Field k="vault" value={intent.vaultId} chars={10} />
+          {intent.chain.principal && (
+            <Field k="principal" value={intent.chain.principal} chars={10} />
+          )}
+          {intent.chain.holder && <Field k="agent" value={intent.chain.holder} chars={10} />}
+        </div>
+      </details>
+
+      {/* --- the action ---------------------------------------- */}
+      <div className="mt-8">
+        {ended ? (
+          <div className="panel border-block p-5">
+            <Badge tone="block">{intent.status.endedBecause}</Badge>
+            <p className="mt-3 text-sm text-muted">
+              This intent has ended. Nothing further can be spent from it.
+            </p>
+          </div>
+        ) : claimed || live ? (
+          <div className="panel-tint p-5">
+            <Badge tone="pass">redeemed</Badge>
+            <p className="mt-3 text-sm">The agent is live and bounded.</p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <a href={`/i/${label}/console`} className="btn btn-primary">
+                Watch it work
+              </a>
+              <a href="/mine" className="btn">
+                Your intents
+              </a>
+            </div>
+          </div>
+        ) : rejected ? (
+          <div className="panel border-block p-5">
+            <Badge tone="block">wrong recipient</Badge>
+            <p className="mt-3 text-sm">This intent was issued to a different account.</p>
+            <div className="panel-flat mt-3 divide-y divide-line px-3 py-1">
+              <Field k="Issued to" value={rejected.issuedTo} full />
+              <Field k="Signed in as" value={rejected.signedInAs} full />
+            </div>
+            <p className="mt-3 text-xs text-muted">
+              Nothing was claimed. The funds are untouched.
+            </p>
+          </div>
+        ) : !session ? (
+          <div className="panel p-5">
+            <h2 className="text-lg font-bold">Claim this intent</h2>
+            <p className="mt-1 text-sm text-muted">
+              No wallet. No seed phrase. No gas.
+            </p>
+            <button onClick={signIn} className="btn btn-primary mt-4">
+              Continue with Google
+            </button>
+          </div>
+        ) : (
+          <div className="panel p-5">
+            <h2 className="text-lg font-bold">One link, one human</h2>
+            <p className="mt-1 text-sm text-muted">
+              Verify with World so a forwarded copy cannot be claimed twice.
+            </p>
+            <button
+              onClick={() => setWorldOpen(true)}
+              disabled={claiming || !rp || !action}
+              className="btn btn-primary mt-4"
+            >
+              {claiming ? "Redeeming…" : !rp ? "Preparing…" : "Verify with World to redeem"}
+            </button>
+
+            {/* World's own modal — QR on desktop, deep link on mobile. */}
+            {rp && action && (
+              <IDKitRequestWidget
+                open={worldOpen}
+                onOpenChange={setWorldOpen}
+                app_id={APP_ID}
+                action={action}
+                rp_context={rp}
+                allow_legacy_proofs
+                action_description="Redeem an IntentLink permission"
+                preset={CREDENTIAL()}
+                onSuccess={redeem}
+              />
+            )}
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <p className="pop panel mt-4 border-block bg-block p-3 text-sm font-semibold text-white">
+          {error}
+        </p>
+      )}
+    </Shell>
   );
 }
 
 function Line({ ok, children }: { ok?: boolean; children: React.ReactNode }) {
   return (
-    <li className="flex gap-2">
-      <span className={ok ? "text-pass" : "text-block"}>{ok ? "✓" : "✗"}</span>
+    <li className="flex gap-2.5">
+      <span className={`font-bold ${ok ? "text-pass" : "text-block"}`} aria-hidden>
+        {ok ? "✓" : "✕"}
+      </span>
       <span className={ok ? "" : "text-muted"}>{children}</span>
     </li>
-  );
-}
-
-function Figure({
-  k,
-  v,
-  unit,
-  accent,
-}: {
-  k: string;
-  v: string;
-  unit: string;
-  accent?: boolean;
-}) {
-  return (
-    <div>
-      <p className="text-xs text-muted">{k}</p>
-      <p className={`figure mt-1 text-2xl ${accent ? "text-accent" : ""}`}>{v}</p>
-      <p className="text-xs text-muted">{unit}</p>
-    </div>
-  );
-}
-
-function Row({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <dt className="text-muted">{k}</dt>
-      <dd className="val">{v}</dd>
-    </div>
   );
 }
