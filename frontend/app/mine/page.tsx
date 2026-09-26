@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Escalation } from "@/components/Escalation";
+import { History } from "@/components/History";
 import { Badge, Copy, Field, Meter, Mono, Shell, phaseTone } from "@/components/ui";
 import { sendAction } from "@/lib/tx-client";
 import { useZkLogin } from "@/lib/zklogin/useZkLogin";
@@ -441,8 +442,17 @@ function Card({
           </div>
         </div>
 
-        {/* The ids someone actually needs to paste into an explorer. */}
         <details className="group mt-4">
+          <summary className="val cursor-pointer list-none text-xs text-muted hover:text-sui-deep">
+            ▸ history
+          </summary>
+          <div className="panel-flat mt-2 px-3 py-1">
+            <History label={row.label} compact />
+          </div>
+        </details>
+
+        {/* The ids someone actually needs to paste into an explorer. */}
+        <details className="group mt-3">
           <summary className="val cursor-pointer list-none text-xs text-muted hover:text-sui-deep">
             ▸ ids &amp; addresses
           </summary>

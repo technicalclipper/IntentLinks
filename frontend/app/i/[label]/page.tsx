@@ -9,6 +9,7 @@ import {
   type RpContext,
 } from "@worldcoin/idkit";
 import { use, useEffect, useState } from "react";
+import { HistoryPanel } from "@/components/History";
 import { Badge, Copy, Field, Meter, Mono, Shell, Stat } from "@/components/ui";
 import { useZkLogin } from "@/lib/zklogin/useZkLogin";
 
@@ -284,6 +285,10 @@ export default function IntentPage({ params }: { params: Promise<{ label: string
           </p>
         </div>
       )}
+
+      {/* The recipient is accountable for what the agent did with their
+          authority, so they get the same history the sender does. */}
+      {live && <HistoryPanel label={label} />}
 
       {/* --- the cross-chain check ----------------------------- */}
       <div className={`panel mt-4 p-4 ${verified ? "" : "border-block"}`}>
