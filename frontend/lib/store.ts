@@ -76,7 +76,28 @@ export interface IntentRecord {
   } | null;
 }
 
-const FILE = path.join(process.cwd(), ".data", "intents.json");
+/**
+ * Where the file lives.
+ *
+ * Locally this sits beside the project. On Vercel the deployment
+ * filesystem is read-only apart from /tmp, so writing beside the project
+ * throws EROFS and every mint fails — the store has to move.
+ *
+ * /tmp is per-instance and does not survive a cold start, which makes the
+ * hosted deployment a place to try the product rather than a place to
+ * keep anything. That is a deliberate trade for a hackathon: the parts
+ * that matter — the vault, the capsule, every bound, the whole history —
+ * live on Sui and are unaffected. What a cold start loses is the
+ * per-capsule salt and the policy document, so older links stop
+ * resolving while the capabilities themselves keep enforcing.
+ *
+ * Point INTENTLINK_DATA_DIR at durable storage to change that.
+ */
+const DATA_DIR =
+  process.env.INTENTLINK_DATA_DIR ??
+  (process.env.VERCEL ? "/tmp/intentlink" : path.join(process.cwd(), ".data"));
+
+const FILE = path.join(DATA_DIR, "intents.json");
 
 function load(): Record<string, IntentRecord> {
   try {
