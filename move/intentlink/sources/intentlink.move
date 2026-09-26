@@ -45,6 +45,10 @@ const E_NOT_PRINCIPAL: u64 = 26;
 const E_PERMIT_WRONG_CAPSULE: u64 = 27;
 const E_PERMIT_EXPIRED: u64 = 28;
 const E_PERMIT_AMOUNT: u64 = 29;
+/// A different human approved than the one who wrote the limit.
+const E_NOT_SAME_HUMAN: u64 = 30;
+/// Entry point retired. Kept only because upgrades cannot delete one.
+const E_DEPRECATED: u64 = 31;
 
 // ===== Settlement modes ===========================================
 
@@ -237,6 +241,16 @@ public struct Swapped has copy, drop {
     beneficiary: address,
     pool_id: ID,
     elevated: bool,
+    at_ms: u64,
+}
+
+public struct EscalationRequested has copy, drop {
+    capsule_id: ID,
+    holder: address,
+    amount: u64,
+    /// Why the agent says it needs this. Attested, never enforced.
+    reason_code: u8,
+    signal_hash: vector<u8>,
     at_ms: u64,
 }
 
@@ -731,16 +745,106 @@ fun check_and_charge<T>(
     capsule.spent = capsule.spent + amount;
 }
 
-/// Mint a one-shot escalation permit.
+/// Ask to exceed a soft bound. Callable only by the agent.
 ///
-/// Called only after the backend has verified a fresh World ID proof from
-/// the issuer, with the signal bound to this exact request. The agent has no
-/// path to this function — it can ask, it cannot approve.
+/// This is the whole of the agent's authority over escalation: it may state
+/// what it wants and why, on chain, where the issuer and anyone else can
+/// see it. It cannot grant itself anything — `approve_escalation` is the
+/// only path to a `Permit` and it demands the issuer's own signature.
 ///
-/// `max_amount` is clamped to the capsule's hard cap here as well as at
-/// execution, so even a compromised verifier cannot mint its way past it.
+/// The request is an event rather than an object deliberately. An object
+/// would be something the agent holds, and the point of the exercise is
+/// that the agent holds nothing that moves money.
+public fun request_escalation(
+    capsule: &Capsule,
+    amount: u64,
+    reason_code: u8,
+    signal_hash: vector<u8>,
+    clock: &Clock,
+    ctx: &TxContext,
+) {
+    assert!(capsule.holder.is_some(), E_NOT_CLAIMED);
+    assert!(*capsule.holder.borrow() == ctx.sender(), E_NOT_HOLDER);
+    assert!(!capsule.revoked && !capsule.surrendered, E_REVOKED);
+
+    event::emit(EscalationRequested {
+        capsule_id: object::id(capsule),
+        holder: ctx.sender(),
+        amount,
+        reason_code,
+        signal_hash,
+        at_ms: clock.timestamp_ms(),
+    });
+}
+
+/// Approve an escalation and mint the one-shot permit.
+///
+/// The issuer signs this themselves. `ctx.sender() == capsule.issuer` is the
+/// load-bearing line: sameness of person is settled by a key the agent has
+/// never held, on chain, with no backend standing in the middle. An earlier
+/// version took a `VerifierCap` and trusted our server to have checked a
+/// World proof correctly — which made the server, not the contract, the
+/// thing you had to believe.
+///
+/// World ID still does the work nothing else can. The frontend will not
+/// reach this function without a fresh proof of personhood whose signal is
+/// `hash(capsule, amount, nonce)`, so an approval cannot be a replayed
+/// credential and a yes to 26 cannot be stretched into a yes to 260. A
+/// bearer token can be handed to the very agent you are constraining; a
+/// live human cannot.
+///
+/// `approver_nullifier` is the third leg, and it is optional on purpose.
+/// When a World action permits the issuer to verify twice — once at mint,
+/// once here — the two nullifiers are comparable and we require them to
+/// match, proving not just the same account but the same human. Actions
+/// created through the v4 API allow one verification each and expose no way
+/// to raise it, so when either side is empty we skip the check rather than
+/// refuse every escalation. Passing a nullifier that disagrees is always
+/// fatal: absent evidence is tolerated, contradictory evidence is not.
+///
+/// `max_amount` is clamped to the hard cap here and again at execution. The
+/// hard cap is the one number no escalation can move.
+public fun approve_escalation(
+    capsule: &Capsule,
+    max_amount: u64,
+    ttl_ms: u64,
+    signal_hash: vector<u8>,
+    approver_nullifier: vector<u8>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(ctx.sender() == capsule.issuer, E_NOT_ISSUER);
+    assert!(capsule.holder.is_some(), E_NOT_CLAIMED);
+    assert!(!capsule.revoked && !capsule.surrendered, E_REVOKED);
+    assert!(max_amount <= capsule.hard_cap, E_OVER_HARD_CAP);
+
+    if (!approver_nullifier.is_empty() && !capsule.issuer_nullifier.is_empty()) {
+        assert!(approver_nullifier == capsule.issuer_nullifier, E_NOT_SAME_HUMAN);
+    };
+
+    mint_permit_inner(capsule, max_amount, ttl_ms, signal_hash, clock, ctx)
+}
+
+/// Removed. Permits are minted by the issuer's signature, not by ours.
+///
+/// This used to mint a `Permit` on a `VerifierCap`, which meant our backend
+/// could mint one. Sui package upgrades cannot delete a public function, so
+/// the entry point survives as a shape and aborts. The capability itself is
+/// still used for redemption, where attesting "a verified human appeared"
+/// is exactly what it should be trusted to do.
 public fun mint_permit(
     _cap: &VerifierCap,
+    _capsule: &Capsule,
+    _max_amount: u64,
+    _ttl_ms: u64,
+    _signal_hash: vector<u8>,
+    _clock: &Clock,
+    _ctx: &mut TxContext,
+) {
+    abort E_DEPRECATED
+}
+
+fun mint_permit_inner(
     capsule: &Capsule,
     max_amount: u64,
     ttl_ms: u64,
@@ -748,10 +852,6 @@ public fun mint_permit(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    assert!(capsule.holder.is_some(), E_NOT_CLAIMED);
-    assert!(!capsule.revoked && !capsule.surrendered, E_REVOKED);
-    assert!(max_amount <= capsule.hard_cap, E_OVER_HARD_CAP);
-
     let expires_at = clock.timestamp_ms() + ttl_ms;
     let permit = Permit {
         id: object::new(ctx),

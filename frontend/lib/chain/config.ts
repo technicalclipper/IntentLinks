@@ -6,7 +6,25 @@
  * is deliberate, not a bug.
  */
 
+/**
+ * The package that first defined our types. Type identity in Move is fixed
+ * at definition, so every `Vault`, `Capsule` and `DUSD` ever created is
+ * named after this id and always will be — an upgrade does not rename them.
+ * Use it for type arguments and for parsing object types.
+ */
 export const PACKAGE_ID = process.env.NEXT_PUBLIC_INTENTLINK_PACKAGE_ID!;
+
+/**
+ * The newest published version, and where calls must go.
+ *
+ * A call dispatches to the exact version it names, so calling PACKAGE_ID
+ * runs the original bytecode — which would silently execute the retired
+ * `mint_permit` and never find `approve_escalation` at all. Falls back to
+ * the original when nothing has been upgraded yet.
+ */
+export const PACKAGE_LATEST =
+  process.env.NEXT_PUBLIC_INTENTLINK_PACKAGE_LATEST || PACKAGE_ID;
+
 export const MODULE = "intentlink";
 
 export const SUI_NETWORK = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? "testnet") as
@@ -26,8 +44,9 @@ export const VERIFIER_CAP_ID = process.env.INTENTLINK_VERIFIER_CAP_ID;
 export const SPONSOR_PRIVATE_KEY = process.env.SUI_SPONSOR_PRIVATE_KEY;
 export const AGENT_PRIVATE_KEY = process.env.SUI_AGENT_PRIVATE_KEY;
 
+/** Call targets always name the latest version. */
 export function target(fn: string): `${string}::${string}::${string}` {
-  return `${PACKAGE_ID}::${MODULE}::${fn}`;
+  return `${PACKAGE_LATEST}::${MODULE}::${fn}`;
 }
 
 /** Where proceeds are allowed to land. Mirrors the Move constants. */
@@ -68,5 +87,5 @@ export const DEMO_POOL_ID = process.env.NEXT_PUBLIC_DEMO_POOL_ID ?? "";
 export const RIVAL_POOL_ID = process.env.NEXT_PUBLIC_RIVAL_POOL_ID ?? "";
 
 export function poolTarget(fn: string): `${string}::${string}::${string}` {
-  return `${PACKAGE_ID}::demo_pool::${fn}`;
+  return `${PACKAGE_LATEST}::demo_pool::${fn}`;
 }

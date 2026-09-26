@@ -580,11 +580,9 @@ fun a_permit_lifts_the_window_cap_for_exactly_one_action() {
 
     sc.next_tx(ISSUER);
     {
-        let vcap = sc.take_from_sender<VerifierCap>();
         let capsule = sc.take_shared<Capsule>();
-        il::mint_permit(&vcap, &capsule, 60, 120_000, b"signal", &clock, sc.ctx());
+        il::approve_escalation(&capsule, 60, 120_000, b"signal", b"", &clock, sc.ctx());
         ts::return_shared(capsule);
-        sc.return_to_sender(vcap);
     };
 
     sc.next_tx(AGENT);
@@ -615,11 +613,9 @@ fun an_escalated_spend_still_consumes_the_window() {
     let (mut sc, clock) = start_claimed();
     sc.next_tx(ISSUER);
     {
-        let vcap = sc.take_from_sender<VerifierCap>();
         let capsule = sc.take_shared<Capsule>();
-        il::mint_permit(&vcap, &capsule, 60, 120_000, b"signal", &clock, sc.ctx());
+        il::approve_escalation(&capsule, 60, 120_000, b"signal", b"", &clock, sc.ctx());
         ts::return_shared(capsule);
-        sc.return_to_sender(vcap);
     };
     sc.next_tx(AGENT);
     {
@@ -646,11 +642,9 @@ fun a_permit_cannot_be_minted_above_the_hard_cap() {
     let (mut sc, clock) = start_claimed();
     sc.next_tx(ISSUER);
     {
-        let vcap = sc.take_from_sender<VerifierCap>();
         let capsule = sc.take_shared<Capsule>();
-        il::mint_permit(&vcap, &capsule, HARD + 1, 120_000, b"signal", &clock, sc.ctx());
+        il::approve_escalation(&capsule, HARD + 1, 120_000, b"signal", b"", &clock, sc.ctx());
         ts::return_shared(capsule);
-        sc.return_to_sender(vcap);
     };
     finish(sc, clock);
 }
@@ -661,11 +655,9 @@ fun cannot_spend_more_than_the_permit_allows() {
     let (mut sc, clock) = start_claimed();
     sc.next_tx(ISSUER);
     {
-        let vcap = sc.take_from_sender<VerifierCap>();
         let capsule = sc.take_shared<Capsule>();
-        il::mint_permit(&vcap, &capsule, 40, 120_000, b"signal", &clock, sc.ctx());
+        il::approve_escalation(&capsule, 40, 120_000, b"signal", b"", &clock, sc.ctx());
         ts::return_shared(capsule);
-        sc.return_to_sender(vcap);
     };
     sc.next_tx(AGENT);
     {
@@ -689,11 +681,9 @@ fun an_expired_permit_is_worthless() {
     let (mut sc, mut clock) = start_claimed();
     sc.next_tx(ISSUER);
     {
-        let vcap = sc.take_from_sender<VerifierCap>();
         let capsule = sc.take_shared<Capsule>();
-        il::mint_permit(&vcap, &capsule, 60, 120_000, b"signal", &clock, sc.ctx());
+        il::approve_escalation(&capsule, 60, 120_000, b"signal", b"", &clock, sc.ctx());
         ts::return_shared(capsule);
-        sc.return_to_sender(vcap);
     };
     clock.set_for_testing(200_000); // past the 2 minute ttl
     sc.next_tx(AGENT);
@@ -744,7 +734,7 @@ fun escalation_still_respects_the_total_cap() {
         let vcap = sc.take_from_sender<VerifierCap>();
         let mut capsule = sc.take_shared<Capsule>();
         il::claim(&vcap, &mut capsule, PRINCIPAL, AGENT, option::none(), &clock);
-        il::mint_permit(&vcap, &capsule, 100, 120_000, b"signal", &clock, sc.ctx());
+        il::approve_escalation(&capsule, 100, 120_000, b"signal", b"", &clock, sc.ctx());
         ts::return_shared(capsule);
         sc.return_to_sender(vcap);
     };
@@ -920,6 +910,118 @@ fun swap_path_cannot_redirect_the_proceeds() {
         ts::return_shared(vault);
         ts::return_shared(capsule);
         ts::return_shared(pool);
+    };
+    finish(sc, clock);
+}
+
+// ===== Who may approve an escalation ==============================
+//
+// This is the part of the system an agent would most like to subvert, so
+// each way in gets its own test.
+
+/// The agent may ask. That is the entirety of its authority here.
+#[test]
+fun the_agent_can_request_an_escalation() {
+    let (mut sc, clock) = start_claimed();
+    sc.next_tx(AGENT);
+    {
+        let capsule = sc.take_shared<Capsule>();
+        il::request_escalation(&capsule, 60, 1, b"signal", &clock, sc.ctx());
+        ts::return_shared(capsule);
+    };
+    finish(sc, clock);
+}
+
+/// ...and nobody else can even ask in its name.
+#[test]
+#[expected_failure(abort_code = 12, location = intentlink::intentlink)]
+fun only_the_agent_can_request_an_escalation() {
+    let (mut sc, clock) = start_claimed();
+    sc.next_tx(OUTSIDER);
+    {
+        let capsule = sc.take_shared<Capsule>();
+        il::request_escalation(&capsule, 60, 1, b"signal", &clock, sc.ctx());
+        ts::return_shared(capsule);
+    };
+    finish(sc, clock);
+}
+
+/// The one that matters. An agent that could approve its own request would
+/// make every cap in this module advisory.
+#[test]
+#[expected_failure(abort_code = 1, location = intentlink::intentlink)]
+fun the_agent_cannot_approve_its_own_escalation() {
+    let (mut sc, clock) = start_claimed();
+    sc.next_tx(AGENT);
+    {
+        let capsule = sc.take_shared<Capsule>();
+        il::approve_escalation(&capsule, 60, 120_000, b"signal", b"", &clock, sc.ctx());
+        ts::return_shared(capsule);
+    };
+    finish(sc, clock);
+}
+
+/// Nor can the human the funds are destined for. They bear the consequence
+/// of the limit, they did not write it.
+#[test]
+#[expected_failure(abort_code = 1, location = intentlink::intentlink)]
+fun the_principal_cannot_approve_an_escalation() {
+    let (mut sc, clock) = start_claimed();
+    sc.next_tx(PRINCIPAL);
+    {
+        let capsule = sc.take_shared<Capsule>();
+        il::approve_escalation(&capsule, 60, 120_000, b"signal", b"", &clock, sc.ctx());
+        ts::return_shared(capsule);
+    };
+    finish(sc, clock);
+}
+
+/// When both nullifiers are present they must agree — same account is not
+/// the same thing as same human, and we check both when World lets us.
+#[test]
+fun a_matching_nullifier_is_accepted() {
+    let (mut sc, clock) = start_claimed();
+    sc.next_tx(ISSUER);
+    {
+        let capsule = sc.take_shared<Capsule>();
+        il::approve_escalation(
+            &capsule, 60, 120_000, b"signal", b"issuer-nullifier", &clock, sc.ctx(),
+        );
+        ts::return_shared(capsule);
+    };
+    finish(sc, clock);
+}
+
+/// A different human at the issuer's keyboard is refused outright. Absent
+/// evidence we tolerate; contradictory evidence we do not.
+#[test]
+#[expected_failure(abort_code = 30, location = intentlink::intentlink)]
+fun a_different_human_cannot_approve() {
+    let (mut sc, clock) = start_claimed();
+    sc.next_tx(ISSUER);
+    {
+        let capsule = sc.take_shared<Capsule>();
+        il::approve_escalation(
+            &capsule, 60, 120_000, b"signal", b"somebody-else", &clock, sc.ctx(),
+        );
+        ts::return_shared(capsule);
+    };
+    finish(sc, clock);
+}
+
+/// The retired backend path. Upgrades cannot delete a public function, so
+/// this asserts the shape is dead rather than merely unused.
+#[test]
+#[expected_failure(abort_code = 31, location = intentlink::intentlink)]
+fun the_backend_can_no_longer_mint_a_permit() {
+    let (mut sc, clock) = start_claimed();
+    sc.next_tx(ISSUER);
+    {
+        let vcap = sc.take_from_sender<VerifierCap>();
+        let capsule = sc.take_shared<Capsule>();
+        il::mint_permit(&vcap, &capsule, 60, 120_000, b"signal", &clock, sc.ctx());
+        ts::return_shared(capsule);
+        sc.return_to_sender(vcap);
     };
     finish(sc, clock);
 }

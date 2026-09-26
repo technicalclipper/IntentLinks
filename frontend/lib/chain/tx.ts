@@ -206,28 +206,59 @@ export function logSkip(
 // ===== Escalation ================================================
 
 /**
- * Mint a one-shot permit after a fresh World proof from the issuer.
- * `signalHash` is hash(capsule_id, amount, nonce) from that proof, so the
- * approval is welded to one request.
+ * The agent asks. Signed by the agent's own key, which is the whole of its
+ * authority here — it puts the request on chain where the issuer can see it
+ * and can do nothing else with it.
  */
-export function mintPermit(
+export function requestEscalation(
   tx: Transaction,
   args: {
-    verifierCapId: string;
     capsuleId: string;
-    maxAmount: bigint;
-    ttlMs: bigint;
+    amount: bigint;
+    reasonCode: number;
     signalHash: string;
   },
 ) {
   return tx.moveCall({
-    target: target("mint_permit"),
+    target: target("request_escalation"),
     arguments: [
-      tx.object(args.verifierCapId),
+      tx.object(args.capsuleId),
+      tx.pure.u64(args.amount),
+      tx.pure.u8(args.reasonCode),
+      tx.pure.vector("u8", bytes(args.signalHash)),
+      tx.object(CLOCK_ID),
+    ],
+  });
+}
+
+/**
+ * The issuer approves, and must sign it themselves — `approve_escalation`
+ * asserts the sender is the capsule's issuer, so this transaction is
+ * worthless unless their key signs it.
+ *
+ * `signalHash` is hash(capsule_id, amount, nonce) from the World proof,
+ * welding the approval to one request. `approverNullifier` is the optional
+ * same-human check: pass an empty string when the World action would not
+ * let the issuer verify a second time.
+ */
+export function approveEscalation(
+  tx: Transaction,
+  args: {
+    capsuleId: string;
+    maxAmount: bigint;
+    ttlMs: bigint;
+    signalHash: string;
+    approverNullifier?: string;
+  },
+) {
+  return tx.moveCall({
+    target: target("approve_escalation"),
+    arguments: [
       tx.object(args.capsuleId),
       tx.pure.u64(args.maxAmount),
       tx.pure.u64(args.ttlMs),
       tx.pure.vector("u8", bytes(args.signalHash)),
+      tx.pure.vector("u8", bytes(args.approverNullifier ?? "")),
       tx.object(CLOCK_ID),
     ],
   });
