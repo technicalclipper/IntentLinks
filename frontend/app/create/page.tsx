@@ -11,6 +11,7 @@ import {
   type IDKitResultSession,
   type RpContext,
 } from "@worldcoin/idkit";
+import { QR } from "@/components/QR";
 import { Badge, Copy, Mono, Shell, Stat } from "@/components/ui";
 import { useZkLogin } from "@/lib/zklogin/useZkLogin";
 import { createdOfType, sendAction } from "@/lib/tx-client";
@@ -331,6 +332,10 @@ export default function Create() {
   }
 
   if (phase === "done" && link) {
+    // Built once: the copy control, the QR and the visible text must never
+    // be able to disagree about what the link is.
+    const fullLink = `${typeof window !== "undefined" ? window.location.origin : ""}${link.url}`;
+
     return (
       <Shell width="max-w-xl">
         <Badge tone="pass">intent created</Badge>
@@ -339,17 +344,28 @@ export default function Create() {
           Send this to {c?.recipientEmail ?? "anyone"}. They need no wallet and pay no gas.
         </p>
 
-        <div className="panel mt-6 p-4">
-          <p className="text-xs tracking-widest text-muted uppercase">The link</p>
-          <div className="mt-2 flex items-center gap-2">
-            <span className="val min-w-0 flex-1 truncate text-sm">
-              {typeof window !== "undefined" ? window.location.origin : ""}
-              {link.url}
-            </span>
-            <Copy
-              value={`${typeof window !== "undefined" ? window.location.origin : ""}${link.url}`}
-              label="link"
-            />
+        {/* The recipient is almost always on another device — that is the
+            point of a link that carries a permission — so the code sits
+            beside the URL rather than being something to go and find. */}
+        <div className="panel mt-6 p-5">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs tracking-widest text-muted uppercase">The link</p>
+              <div className="mt-2 flex items-center gap-2">
+                <span className="val min-w-0 flex-1 truncate text-sm">
+                  {fullLink}
+                </span>
+                <Copy value={fullLink} label="link" />
+              </div>
+
+              <p className="mt-4 text-xs leading-relaxed text-muted">
+                Scan it, or send it however you like. Whoever opens it still has to
+                prove they are the person it was issued to — the link is an
+                address, not a bearer token.
+              </p>
+            </div>
+
+            <QR value={fullLink} />
           </div>
         </div>
 
