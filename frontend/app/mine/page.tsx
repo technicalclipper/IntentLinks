@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Escalation } from "@/components/Escalation";
 import { History } from "@/components/History";
+import { QR } from "@/components/QR";
 import { Badge, Copy, Field, Meter, Mono, Shell, phaseTone } from "@/components/ui";
 import { sendAction } from "@/lib/tx-client";
 import { useZkLogin } from "@/lib/zklogin/useZkLogin";
@@ -342,6 +343,52 @@ export default function MinePage() {
   );
 }
 
+/**
+ * The shareable link, always to hand.
+ *
+ * The QR is folded away rather than shown on every card — a list of eight
+ * codes is noise — but it is one click from the link it encodes, because
+ * the recipient is usually holding a different device.
+ */
+function LinkRow({ label }: { label: string }) {
+  const [origin, setOrigin] = useState("");
+  const [showQr, setShowQr] = useState(false);
+
+  // Read after mount: the server has no window, and rendering the origin
+  // during SSR is a hydration mismatch waiting to happen.
+  useEffect(() => setOrigin(window.location.origin), []);
+  const url = `${origin}/i/${label}`;
+
+  return (
+    <div className="panel-flat mt-4 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs tracking-widest text-muted uppercase">Link</span>
+        <a
+          href={`/i/${label}`}
+          className="val min-w-0 flex-1 truncate text-xs hover:text-sui-deep"
+          title={url}
+        >
+          {origin ? url : `/i/${label}`}
+        </a>
+        <Copy value={url} label="link" />
+        <button
+          onClick={() => setShowQr((v) => !v)}
+          className="btn btn-sm"
+          aria-expanded={showQr}
+        >
+          {showQr ? "Hide QR" : "QR"}
+        </button>
+      </div>
+
+      {showQr && origin && (
+        <div className="pop mt-3 flex justify-center">
+          <QR value={url} size={148} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Can this viewer actually exercise the principal's controls? */
 function samePrincipal(r: Row, data: Mine | null): boolean {
   return Boolean(
@@ -469,6 +516,11 @@ function Card({
           </div>
         </details>
 
+        {/* The link is the thing an issuer comes back for — to re-send it,
+            or to put it in front of a phone. Burying it under "ids" made
+            the one reusable artefact the hardest thing on the card to find. */}
+        <LinkRow label={row.label} />
+
         {/* The ids someone actually needs to paste into an explorer. */}
         <details className="group mt-3">
           <summary className="val cursor-pointer list-none text-xs text-muted hover:text-sui-deep">
@@ -480,11 +532,6 @@ function Card({
             <Field k={side === "issuer" ? "your address" : "sender"} value={row.issuerAddress} chars={8} />
             {row.principal && <Field k="principal" value={row.principal} chars={8} />}
             {row.holder && <Field k="agent" value={row.holder} chars={8} />}
-            <Field
-              k="link"
-              value={`${typeof window !== "undefined" ? window.location.origin : ""}/i/${row.label}`}
-              chars={14}
-            />
           </div>
         </details>
 
