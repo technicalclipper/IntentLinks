@@ -65,8 +65,18 @@ export default function Deck() {
       </nav>
 
       <Slide i={0}>
-        <span className="badge bg-sun">ETHGlobal Tokyo 2026</span>
-        <h1 className="mt-6 text-6xl leading-[0.88] font-bold tracking-tight sm:text-8xl">
+        {/* The name first. A deck whose opening slide makes you hunt for
+            whose it is has wasted the one moment everyone is looking. */}
+        <div className="flex items-center gap-3">
+          <span className="inline-grid h-12 w-12 place-items-center rounded-xl border-2 border-ink bg-sui text-xl font-bold shadow-[4px_4px_0_0_var(--color-ink)]">
+            ⇥
+          </span>
+          <span className="text-4xl font-bold tracking-tight sm:text-5xl">IntentLink</span>
+        </div>
+
+        <span className="badge mt-6 inline-block bg-sun">ETHGlobal Tokyo 2026</span>
+
+        <h1 className="mt-5 text-5xl leading-[0.88] font-bold tracking-tight sm:text-7xl">
           A link
           <br />
           that carries a
